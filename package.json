@@ -1,0 +1,37 @@
+{
+  "name": "collab-canvas-state-engine",
+  "version": "1.0.0",
+  "description": "Multi-Client Real-Time Canvas / Collaborative State Engine with Optimistic UI and Monotonic Version Clock Reconciliation",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k -n \"server,client\" -c \"cyan.bold,magenta.bold\" \"tsx watch server/server.ts\" \"vite --host\"",
+    "dev:server": "tsx watch server/server.ts",
+    "dev:client": "vite --host",
+    "server": "tsx server/server.ts",
+    "build": "vite build",
+    "test": "tsx --test test/*.test.ts"
+  },
+  "keywords": [
+    "canvas",
+    "collaborative",
+    "realtime",
+    "websocket",
+    "optimistic-ui",
+    "conflict-resolution",
+    "state-engine",
+    "typescript"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.9",
+    "@types/ws": "^8.5.14",
+    "concurrently": "^9.1.2",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2",
+    "vite": "^6.2.0"
+  }
+}

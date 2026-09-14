@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Inkwell</title>
+  <meta name="description" content="Collaborative canvas." />
+
+  <!-- Preconnect to Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <!-- Stylesheet -->
+  <link rel="stylesheet" href="/styles/main.css" />
+</head>
+<body>
+  <div id="app" class="studio-app">
+    <!-- Top Studio Header (Lucidchart / Canva Style) -->
+    <header id="studio-header"></header>
+
+    <!-- Contextual Property / Formatting Bar -->
+    <div id="studio-subbar"></div>
+
+    <!-- Main Workspace -->
+    <div id="studio-workspace">
+      <!-- Left Vertical Tool & Shape Rail -->
+      <aside id="studio-left-rail"></aside>
+
+      <!-- Canvas Viewport Container -->
+      <main id="canvas-container">
+        <canvas id="canvas-viewport"></canvas>
+
+        <!-- Floating Layers Button (Docked on Top-Right inside Drawing Canvas) -->
+        <button id="canvas-layers-btn" class="canvas-floating-btn canvas-layers-floating-btn" title="Toggle Layers Panel (L)">
+          <div class="btn-icon-wrap">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polygon points="12 2 2 7 12 12 22 7 12 2"/>
+              <polyline points="2 17 12 22 22 17"/>
+              <polyline points="2 12 12 17 22 12"/>
+            </svg>
+          </div>
+          <span class="btn-text">Layers</span>
+          <span class="canvas-badge-pill" id="canvas-layers-count">3</span>
+        </button>
+
+        <!-- Minimap Minimap (Dockable in Canvas Viewport) -->
+        <div id="minimap-container" class="studio-minimap">
+          <div class="minimap-header">
+            <span>Minimap</span>
+            <button id="btn-close-minimap" class="minimap-close" title="Close Minimap">×</button>
+          </div>
+          <canvas id="minimap-canvas" width="160" height="100"></canvas>
+        </div>
+      </main>
+
+      <!-- Layers Panel (Right Side Drawer) -->
+      <aside id="studio-layers-drawer" class="studio-drawer"></aside>
+
+      <!-- Admin Console (Right Side Drawer) -->
+      <aside id="chaos-drawer-container"></aside>
+    </div>
+
+    <!-- Studio Bottom Navigation & Status Bar -->
+    <footer id="studio-footer"></footer>
+  </div>
+
+  <!-- Main Application Entry Point -->
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
