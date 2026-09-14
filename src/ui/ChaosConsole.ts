@@ -133,21 +133,22 @@ export class ChaosConsole {
               <input type="range" id="slider-loss" min="0" max="0.25" step="0.05" value="${sim.dropRate}">
             </div>
 
-            <div class="action-buttons-bar">
-              <button id="btn-simulate-race" class="btn btn-race" title="Fire conflicting out-of-order mutations to test Lamport clock reconciliation">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-                Simulate Concurrent Race Condition
+            <div class="chaos-actions-grid">
+              <button id="btn-simulate-race" class="chaos-action-btn" title="Fire conflicting out-of-order mutations to test Lamport clock reconciliation">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m13 2-2 7h5l-6 13 2-9h-5l6-11z"/></svg>
+                <span>Simulate Race</span>
               </button>
 
-              <button id="btn-toggle-connection" class="btn ${sim.offline ? 'btn-success' : 'btn-danger'}">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
-                ${sim.offline ? 'Reconnect Socket' : 'Drop Connection (Offline)'}
-              </button>
-
-              <button id="btn-clear-canvas" class="btn btn-secondary">
-                Clear Canvas
+              <button id="btn-toggle-connection" class="chaos-action-btn ${sim.offline ? 'offline' : 'online'}" title="${sim.offline ? 'Reconnect to WebSocket server' : 'Simulate offline network disconnection'}">
+                <span class="chaos-status-dot"></span>
+                <span>${sim.offline ? 'Reconnect' : 'Drop Link'}</span>
               </button>
             </div>
+
+            <button id="btn-clear-canvas" class="chaos-clear-btn" title="Clear all canvas elements in this room">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+              <span>Clear Canvas Room</span>
+            </button>
           </div>
 
           <!-- Real-Time Full-Duplex Packet Stream -->
