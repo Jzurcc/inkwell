@@ -1,5 +1,6 @@
 import { StateEngine } from '../engine/StateEngine.ts';
 import { CanvasEngine } from '../canvas/CanvasEngine.ts';
+import { LobbyModal } from './LobbyModal.ts';
 
 export class StudioFooter {
   private container: HTMLElement;
@@ -35,11 +36,12 @@ export class StudioFooter {
         <div class="studio-footer-left">
           <div class="room-selector-dock">
             <span class="room-hash-icon">#</span>
-            <select id="footer-room-select" class="footer-room-select" title="Switch Room">
-              <option value="room-alpha" ${this.engine.roomId === 'room-alpha' ? 'selected' : ''}>room-alpha</option>
-              <option value="room-collab" ${this.engine.roomId === 'room-collab' ? 'selected' : ''}>room-collab</option>
-              <option value="room-engineering" ${this.engine.roomId === 'room-engineering' ? 'selected' : ''}>room-engineering</option>
-            </select>
+            <button id="footer-btn-room" class="footer-room-btn" title="Switch or Create Room">
+              <span id="footer-room-label">${this.engine.roomId}</span>
+              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="6 9 12 15 18 9"/>
+              </svg>
+            </button>
           </div>
 
           <div class="footer-v-divider"></div>
@@ -98,14 +100,12 @@ export class StudioFooter {
   }
 
   private attachEvents(): void {
-    // Room select
-    const roomSelect = this.container.querySelector('#footer-room-select') as HTMLSelectElement;
-    roomSelect?.addEventListener('change', (e) => {
-      const target = (e.target as HTMLSelectElement).value;
-      if (target) {
-        window.location.hash = target;
-        this.engine.setRoom(target);
-      }
+    // Room button → open Lobby Modal
+    this.container.querySelector('#footer-btn-room')?.addEventListener('click', () => {
+      LobbyModal.show(this.engine, this.canvasEngine, (newRoom) => {
+        const label = this.container.querySelector('#footer-room-label');
+        if (label) label.textContent = newRoom;
+      });
     });
 
     // Zoom buttons
