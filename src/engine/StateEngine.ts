@@ -283,13 +283,33 @@ export class StateEngine {
     const elId = mutation.elementId;
 
     if (mutation.type === 'CREATE') {
+      let x = mutation.data.x ?? 0;
+      let y = mutation.data.y ?? 0;
+      let width = mutation.data.width;
+      let height = mutation.data.height;
+
+      const points = mutation.data.points;
+      if ((mutation.data.type === 'pen' || mutation.data.type === 'lasso_brush') && points && points.length > 0) {
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        for (const p of points) {
+          if (p.x < minX) minX = p.x;
+          if (p.x > maxX) maxX = p.x;
+          if (p.y < minY) minY = p.y;
+          if (p.y > maxY) maxY = p.y;
+        }
+        if (width === undefined) width = Math.max(1, maxX - minX);
+        if (height === undefined) height = Math.max(1, maxY - minY);
+        if (mutation.data.x === undefined) x = minX;
+        if (mutation.data.y === undefined) y = minY;
+      }
+
       const newEl: CanvasElement = {
         id: elId,
         type: mutation.data.type || 'rectangle',
-        x: mutation.data.x ?? 0,
-        y: mutation.data.y ?? 0,
-        width: mutation.data.width ?? 100,
-        height: mutation.data.height ?? 100,
+        x,
+        y,
+        width: width ?? 100,
+        height: height ?? 100,
         stroke: mutation.data.stroke ?? '#38BDF8',
         strokeWidth: mutation.data.strokeWidth ?? 2,
         fill: mutation.data.fill ?? 'transparent',
@@ -305,6 +325,10 @@ export class StateEngine {
         lamportClock: this.lamportClock,
         updatedAt: Date.now()
       };
+      newEl.x = x;
+      newEl.y = y;
+      newEl.width = width ?? 100;
+      newEl.height = height ?? 100;
       this.speculativeElements.set(elId, newEl);
       return;
     }
@@ -380,7 +404,22 @@ export class StateEngine {
     const hasLocalPending = this.pendingMutations.some((m) => m.elementId === elId);
 
     if (broadcast.type === 'CREATE') {
-      const el = broadcast.data as CanvasElement;
+      const el = { ...(broadcast.data as CanvasElement) };
+      if ((el.type === 'pen' || el.type === 'lasso_brush') && el.points && el.points.length > 0) {
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        for (const p of el.points) {
+          if (p.x < minX) minX = p.x;
+          if (p.x > maxX) maxX = p.x;
+          if (p.y < minY) minY = p.y;
+          if (p.y > maxY) maxY = p.y;
+        }
+        if (!el.width || !el.height || (el.width === 100 && el.height === 100)) {
+          el.x = minX;
+          el.y = minY;
+          el.width = Math.max(1, maxX - minX);
+          el.height = Math.max(1, maxY - minY);
+        }
+      }
       this.authoritativeElements.set(elId, el);
       if (!hasLocalPending) {
         this.speculativeElements.set(elId, { ...el });
@@ -476,7 +515,23 @@ export class StateEngine {
     this.authoritativeElements.clear();
     this.speculativeElements.clear();
 
-    for (const [id, el] of Object.entries(sync.elements)) {
+    for (const [id, rawEl] of Object.entries(sync.elements)) {
+      const el = { ...rawEl };
+      if ((el.type === 'pen' || el.type === 'lasso_brush') && el.points && el.points.length > 0) {
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        for (const p of el.points) {
+          if (p.x < minX) minX = p.x;
+          if (p.x > maxX) maxX = p.x;
+          if (p.y < minY) minY = p.y;
+          if (p.y > maxY) maxY = p.y;
+        }
+        if (!el.width || !el.height || (el.width === 100 && el.height === 100)) {
+          el.x = minX;
+          el.y = minY;
+          el.width = Math.max(1, maxX - minX);
+          el.height = Math.max(1, maxY - minY);
+        }
+      }
       this.authoritativeElements.set(id, el);
       this.speculativeElements.set(id, { ...el });
     }

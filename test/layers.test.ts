@@ -175,4 +175,66 @@ test('Multi-Layer State Engine & Creative Elements', async (t) => {
     assert.equal(line?.type, 'line');
     assert.equal(line?.brushType, 'neon');
   });
+
+  await t.test('calculates accurate bounding box for pen strokes and normalizes on sync', () => {
+    const engine = new StateEngine();
+
+    // Create a pen stroke spanning from (50, 80) to (350, 420)
+    const penMut = engine.submitMutation('CREATE', 'pen_stroke_1', {
+      type: 'pen',
+      stroke: '#EC4899',
+      strokeWidth: 4,
+      brushType: 'calligraphy',
+      points: [
+        { x: 50, y: 100 },
+        { x: 120, y: 80 },
+        { x: 250, y: 300 },
+        { x: 350, y: 420 }
+      ]
+    });
+
+    const created = engine.speculativeElements.get(penMut.elementId);
+    assert.ok(created);
+    assert.equal(created.x, 50, 'x should match minX of points');
+    assert.equal(created.y, 80, 'y should match minY of points');
+    assert.equal(created.width, 300, 'width should match maxX - minX');
+    assert.equal(created.height, 340, 'height should match maxY - minY');
+
+    // Test sync state normalization for legacy/default 100x100 elements
+    engine.handleSyncState({
+      roomVersion: 5,
+      lamportClock: 10,
+      elements: {
+        legacy_pen: {
+          id: 'legacy_pen',
+          type: 'pen',
+          x: 0,
+          y: 0,
+          width: 100, // legacy dummy width
+          height: 100, // legacy dummy height
+          stroke: '#38BDF8',
+          strokeWidth: 2,
+          fill: 'transparent',
+          opacity: 1,
+          authorId: 'peer_1',
+          version: 1,
+          lamportClock: 2,
+          updatedAt: 12345,
+          points: [
+            { x: 150, y: 200 },
+            { x: 400, y: 550 }
+          ]
+        }
+      },
+      presences: {}
+    });
+
+    const normalized = engine.speculativeElements.get('legacy_pen');
+    assert.ok(normalized);
+    assert.equal(normalized.x, 150);
+    assert.equal(normalized.y, 200);
+    assert.equal(normalized.width, 250);
+    assert.equal(normalized.height, 350);
+  });
 });
+

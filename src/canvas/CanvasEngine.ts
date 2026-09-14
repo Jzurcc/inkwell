@@ -565,8 +565,14 @@ export class CanvasEngine {
         if (!e.shiftKey) {
           this.selectedElementIds.clear();
         }
+        this.isAreaSelecting = true;
+        this.selectionMode = 'marquee';
+        this.selectionStartPoint = worldPoint;
+        this.selectionCurrentPoint = worldPoint;
+        this.selectionLassoPoints = [worldPoint];
       }
       this.engine.updateLocalPresence({ selectedIds: Array.from(this.selectedElementIds) });
+      this.notifySelectionChange();
       this.requestRender();
       return;
     }
@@ -825,8 +831,8 @@ export class CanvasEngine {
           // Optimistically update position
           current.x = Math.round(init.x + dx);
           current.y = Math.round(init.y + dy);
-          // For pen elements, offset the points array by the same delta
-          if (current.type === 'pen' && init.points) {
+          // For pen and lasso_brush elements, offset the points array by the same delta
+          if ((current.type === 'pen' || current.type === 'lasso_brush') && init.points) {
             current.points = init.points.map((p) => ({
               x: p.x + dx,
               y: p.y + dy
@@ -852,6 +858,17 @@ export class CanvasEngine {
     if (this.isDrawing && this.currentDraftElement) {
       if (this.currentDraftElement.type === 'pen' || this.currentDraftElement.type === 'lasso_brush') {
         this.currentPenPoints.push(worldPoint);
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        for (const p of this.currentPenPoints) {
+          if (p.x < minX) minX = p.x;
+          if (p.x > maxX) maxX = p.x;
+          if (p.y < minY) minY = p.y;
+          if (p.y > maxY) maxY = p.y;
+        }
+        this.currentDraftElement.x = minX;
+        this.currentDraftElement.y = minY;
+        this.currentDraftElement.width = Math.max(1, maxX - minX);
+        this.currentDraftElement.height = Math.max(1, maxY - minY);
       } else {
         const minX = Math.min(this.dragStartMouse.x, worldPoint.x);
         const minY = Math.min(this.dragStartMouse.y, worldPoint.y);
@@ -895,9 +912,11 @@ export class CanvasEngine {
         const init = this.initialElementPositions.get(id);
         if (el && init && (el.x !== init.x || el.y !== init.y)) {
           const update: Record<string, unknown> = { x: el.x, y: el.y };
-          // Persist updated points for pen strokes
+          // Persist updated points and dimensions for pen/lasso strokes
           if ((el.type === 'pen' || el.type === 'lasso_brush') && el.points) {
             update.points = el.points;
+            update.width = el.width;
+            update.height = el.height;
           }
           this.engine.submitMutation('UPDATE', id, update);
         }
@@ -925,8 +944,8 @@ export class CanvasEngine {
             type: 'lasso_brush',
             x: minX,
             y: minY,
-            width: Math.max(10, maxX - minX),
-            height: Math.max(10, maxY - minY),
+            width: Math.max(1, maxX - minX),
+            height: Math.max(1, maxY - minY),
             stroke: el.stroke,
             strokeWidth: el.strokeWidth,
             fill: el.fill,
@@ -940,18 +959,31 @@ export class CanvasEngine {
         }
         this.currentPenPoints = [];
       } else if (el.type === 'pen') {
-        if (this.currentPenPoints.length > 1) {
+        if (this.currentPenPoints.length > 0) {
+          let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+          for (const p of this.currentPenPoints) {
+            minX = Math.min(minX, p.x);
+            maxX = Math.max(maxX, p.x);
+            minY = Math.min(minY, p.y);
+            maxY = Math.max(maxY, p.y);
+          }
+          const width = Math.max(1, maxX - minX);
+          const height = Math.max(1, maxY - minY);
           this.engine.submitMutation('CREATE', el.id, {
             type: 'pen',
-            x: el.x,
-            y: el.y,
+            x: minX,
+            y: minY,
+            width: width,
+            height: height,
             stroke: el.stroke,
             strokeWidth: el.strokeWidth,
             opacity: el.opacity,
             layerId: el.layerId,
             brushType: el.brushType,
             dash: el.dash,
-            points: [...this.currentPenPoints]
+            points: this.currentPenPoints.length === 1
+              ? [this.currentPenPoints[0], { x: this.currentPenPoints[0].x + 0.1, y: this.currentPenPoints[0].y }]
+              : [...this.currentPenPoints]
           });
         }
         this.currentPenPoints = [];
@@ -1102,17 +1134,35 @@ export class CanvasEngine {
             this.engine.submitMutation('DELETE', el.id, {});
             this.selectedElementIds.delete(el.id);
           } else {
+            let minX0 = Infinity, maxX0 = -Infinity, minY0 = Infinity, maxY0 = -Infinity;
+            for (const p of valid[0]) {
+              if (p.x < minX0) minX0 = p.x;
+              if (p.x > maxX0) maxX0 = p.x;
+              if (p.y < minY0) minY0 = p.y;
+              if (p.y > maxY0) maxY0 = p.y;
+            }
             this.engine.submitMutation('UPDATE', el.id, {
+              x: minX0,
+              y: minY0,
+              width: Math.max(1, maxX0 - minX0),
+              height: Math.max(1, maxY0 - minY0),
               points: valid[0]
             });
             for (let i = 1; i < valid.length; i++) {
+              let minXi = Infinity, maxXi = -Infinity, minYi = Infinity, maxYi = -Infinity;
+              for (const p of valid[i]) {
+                if (p.x < minXi) minXi = p.x;
+                if (p.x > maxXi) maxXi = p.x;
+                if (p.y < minYi) minYi = p.y;
+                if (p.y > maxYi) maxYi = p.y;
+              }
               const newFragId = `el_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
               this.engine.submitMutation('CREATE', newFragId, {
                 type: el.type,
-                x: valid[i][0].x,
-                y: valid[i][0].y,
-                width: el.width,
-                height: el.height,
+                x: minXi,
+                y: minYi,
+                width: Math.max(1, maxXi - minXi),
+                height: Math.max(1, maxYi - minYi),
                 stroke: el.stroke,
                 strokeWidth: el.strokeWidth,
                 fill: el.fill,
@@ -1130,6 +1180,17 @@ export class CanvasEngine {
     }
   }
 
+  private distToSegment(p: Point, a: Point, b: Point): number {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const lenSq = dx * dx + dy * dy;
+    if (lenSq === 0) return Math.hypot(p.x - a.x, p.y - a.y);
+    const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / lenSq));
+    const projX = a.x + t * dx;
+    const projY = a.y + t * dy;
+    return Math.hypot(p.x - projX, p.y - projY);
+  }
+
   // --- Hit Testing ---
   private hitTest(point: Point): CanvasElement | null {
     const layerMap = this.engine.layers;
@@ -1141,21 +1202,55 @@ export class CanvasEngine {
         continue;
       }
 
-      if (el.type === 'pen' && el.points) {
-        // Point distance to stroke points
-        for (const p of el.points) {
-          const dist = Math.hypot(p.x - point.x, p.y - point.y);
-          if (dist < Math.max(12, el.strokeWidth + 4)) return el;
+      if (el.type === 'pen' && el.points && el.points.length > 0) {
+        const threshold = Math.max(12, (el.strokeWidth || 4) / 2 + 8);
+        const minX = Math.min(el.x, el.x + el.width) - threshold;
+        const maxX = Math.max(el.x, el.x + el.width) + threshold;
+        const minY = Math.min(el.y, el.y + el.height) - threshold;
+        const maxY = Math.max(el.y, el.y + el.height) + threshold;
+        if (point.x < minX || point.x > maxX || point.y < minY || point.y > maxY) {
+          continue;
+        }
+
+        if (el.points.length === 1) {
+          if (Math.hypot(el.points[0].x - point.x, el.points[0].y - point.y) <= threshold) {
+            return el;
+          }
+        } else {
+          for (let i = 0; i < el.points.length - 1; i++) {
+            if (this.distToSegment(point, el.points[i], el.points[i + 1]) <= threshold) {
+              return el;
+            }
+          }
+        }
+      } else if (el.type === 'lasso_brush' && el.points && el.points.length > 0) {
+        const threshold = Math.max(12, (el.strokeWidth || 4) / 2 + 8);
+        const minX = Math.min(el.x, el.x + el.width) - threshold;
+        const maxX = Math.max(el.x, el.x + el.width) + threshold;
+        const minY = Math.min(el.y, el.y + el.height) - threshold;
+        const maxY = Math.max(el.y, el.y + el.height) + threshold;
+        if (point.x < minX || point.x > maxX || point.y < minY || point.y > maxY) {
+          continue;
+        }
+
+        if (this.isPointInPolygon(point, el.points)) {
+          return el;
+        }
+        for (let i = 0; i < el.points.length; i++) {
+          const p1 = el.points[i];
+          const p2 = el.points[(i + 1) % el.points.length];
+          if (this.distToSegment(point, p1, p2) <= threshold) {
+            return el;
+          }
         }
       } else if (el.type === 'arrow' || el.type === 'line') {
+        const threshold = Math.max(12, (el.strokeWidth || 4) / 2 + 8);
         const x1 = el.x;
         const y1 = el.y;
         const x2 = el.x + el.width;
         const y2 = el.y + el.height;
-        const len = Math.hypot(x2 - x1, y2 - y1);
-        if (len > 0) {
-          const d = Math.abs((y2 - y1) * point.x - (x2 - x1) * point.y + x2 * y1 - y2 * x1) / len;
-          if (d < Math.max(12, el.strokeWidth + 4)) return el;
+        if (this.distToSegment(point, { x: x1, y: y1 }, { x: x2, y: y2 }) <= threshold) {
+          return el;
         }
       } else {
         // Bounding box hit
@@ -1164,7 +1259,7 @@ export class CanvasEngine {
         const minY = Math.min(el.y, el.y + el.height);
         const maxY = Math.max(el.y, el.y + el.height);
 
-        const pad = (el.type === 'text' || el.type === 'sticky_note') ? 10 : 2;
+        const pad = (el.type === 'text' || el.type === 'sticky_note') ? 10 : 4;
         if (point.x >= minX - pad && point.x <= maxX + pad && point.y >= minY - pad && point.y <= maxY + pad) {
           return el;
         }
@@ -1190,6 +1285,13 @@ export class CanvasEngine {
 
         if (elMinX <= maxX && elMaxX >= minX && elMinY <= maxY && elMaxY >= minY) {
           this.selectedElementIds.add(id);
+        } else if (el.points && el.points.length > 0) {
+          for (const p of el.points) {
+            if (p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY) {
+              this.selectedElementIds.add(id);
+              break;
+            }
+          }
         }
       }
     } else if (this.selectionMode === 'circle_select') {
@@ -1204,6 +1306,13 @@ export class CanvasEngine {
         const normalizedDist = Math.pow((elCx - cx) / rx, 2) + Math.pow((elCy - cy) / ry, 2);
         if (normalizedDist <= 1.25) {
           this.selectedElementIds.add(id);
+        } else if (el.points && el.points.length > 0) {
+          for (const p of el.points) {
+            if (Math.pow((p.x - cx) / rx, 2) + Math.pow((p.y - cy) / ry, 2) <= 1.0) {
+              this.selectedElementIds.add(id);
+              break;
+            }
+          }
         }
       }
     } else if (this.selectionMode === 'lasso_select' && this.selectionLassoPoints.length > 2) {
@@ -1212,6 +1321,13 @@ export class CanvasEngine {
         const elCy = el.y + el.height / 2;
         if (this.isPointInPolygon({ x: elCx, y: elCy }, this.selectionLassoPoints)) {
           this.selectedElementIds.add(id);
+        } else if (el.points && el.points.length > 0) {
+          for (const p of el.points) {
+            if (this.isPointInPolygon(p, this.selectionLassoPoints)) {
+              this.selectedElementIds.add(id);
+              break;
+            }
+          }
         }
       }
     }
@@ -1710,7 +1826,7 @@ export class CanvasEngine {
     let w = el.width;
     let h = el.height;
 
-    if (el.type === 'pen' && el.points && el.points.length > 0) {
+    if ((el.type === 'pen' || el.type === 'lasso_brush') && el.points && el.points.length > 0) {
       let maxX = el.points[0].x;
       let maxY = el.points[0].y;
       minX = el.points[0].x;
@@ -1726,7 +1842,7 @@ export class CanvasEngine {
     }
 
     const pad = 6 / this.camera.zoom;
-    ctx.strokeRect(minX - pad, minY - pad, w + pad * 2, h + pad * 2);
+    ctx.strokeRect(minX - pad, minY - pad, Math.max(4, w) + pad * 2, Math.max(4, h) + pad * 2);
 
     if (label) {
       ctx.setLineDash([]);
