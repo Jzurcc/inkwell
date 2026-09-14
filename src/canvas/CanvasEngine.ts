@@ -92,6 +92,12 @@ export class CanvasEngine {
   private minimapCanvas: HTMLCanvasElement | null = null;
   private minimapCtx: CanvasRenderingContext2D | null = null;
 
+  // Offscreen element & layer compositing buffers (for smooth direct brush erasing with destination-out)
+  private elementCanvas: HTMLCanvasElement = document.createElement('canvas');
+  private elementCtx: CanvasRenderingContext2D | null = null;
+  private layerCanvas: HTMLCanvasElement = document.createElement('canvas');
+  private layerCtx: CanvasRenderingContext2D | null = null;
+
   constructor(canvas: HTMLCanvasElement, engine: StateEngine) {
     this.canvas = canvas;
     this.canvas.style.touchAction = 'none';
@@ -99,6 +105,9 @@ export class CanvasEngine {
     if (!ctx) throw new Error('Failed to get 2D canvas context');
     this.ctx = ctx;
     this.engine = engine;
+
+    this.elementCtx = this.elementCanvas.getContext('2d');
+    this.layerCtx = this.layerCanvas.getContext('2d');
 
     this.setupResizeHandler();
     this.setupEventListeners();
@@ -140,6 +149,11 @@ export class CanvasEngine {
       this.canvas.height = Math.floor(height * this.dpr);
       this.canvas.style.width = `${width}px`;
       this.canvas.style.height = `${height}px`;
+
+      this.elementCanvas.width = this.canvas.width;
+      this.elementCanvas.height = this.canvas.height;
+      this.layerCanvas.width = this.canvas.width;
+      this.layerCanvas.height = this.canvas.height;
 
       this.requestRender();
     };
@@ -753,12 +767,6 @@ export class CanvasEngine {
       return;
     }
 
-    // Part Eraser mode (E) — acts as a brush and deletes parts of the drawing
-    if (this.isEraserMode || this.activeTool === 'eraser') {
-      this.applyPartEraserAt(worldPoint);
-      return;
-    }
-
     if (this.activeTool === 'hand') {
       this.isPanning = true;
       this.lastPanPoint = { x: e.clientX, y: e.clientY };
@@ -842,7 +850,8 @@ export class CanvasEngine {
         lamportClock: this.engine.lamportClock + 1,
         updatedAt: Date.now()
       };
-    } else if (this.activeTool === 'pen') {
+    } else if (this.activeTool === 'pen' || this.isEraserMode || this.activeTool === 'eraser') {
+      const isErase = this.isEraserMode || this.activeTool === 'eraser';
       this.currentPenPoints = [worldPoint];
       this.currentDraftElement = {
         id: newId,
@@ -851,13 +860,13 @@ export class CanvasEngine {
         y: worldPoint.y,
         width: 0,
         height: 0,
-        stroke: this.strokeColor,
+        stroke: isErase ? '#000000' : this.strokeColor,
         strokeWidth: this.strokeWidth,
         fill: 'transparent',
-        opacity: this.elementOpacity,
+        opacity: isErase ? 1 : this.elementOpacity,
         layerId: this.engine.activeLayerId,
-        brushType: this.activeBrushType,
-        dash: this.activeDashStyle,
+        brushType: isErase ? 'eraser' : this.activeBrushType,
+        dash: isErase ? 'solid' : this.activeDashStyle,
         points: this.currentPenPoints,
         authorId: this.engine.clientId,
         version: 1,
@@ -1029,12 +1038,6 @@ export class CanvasEngine {
         this.selectedElementIds.delete(hit.id);
         this.notifySelectionChange();
       }
-      return;
-    }
-
-    // Part Eraser dragging (E) — carves parts out of drawing strokes
-    if ((this.isEraserMode || this.activeTool === 'eraser') && (e.buttons === 1)) {
-      this.applyPartEraserAt(worldPoint);
       return;
     }
 
@@ -1393,101 +1396,6 @@ export class CanvasEngine {
     this.zoomAt(cx, cy, factor);
   }
 
-  // --- Part Eraser for Freehand Strokes & Shapes ---
-  private applyPartEraserAt(worldPoint: Point): void {
-    const eraseRadius = Math.max(3, this.strokeWidth / 2);
-
-    // If touching a non-stroke shape (rectangle, circle, text, etc.), delete it directly
-    const directHit = this.hitTest(worldPoint);
-    if (directHit && directHit.type !== 'pen' && directHit.type !== 'lasso_brush') {
-      this.engine.submitMutation('DELETE', directHit.id, {});
-      this.selectedElementIds.delete(directHit.id);
-      this.notifySelectionChange();
-      this.requestRender();
-    }
-
-    const elements = Array.from(this.engine.speculativeElements.values());
-
-    for (const el of elements) {
-      if (el.layerId) {
-        const layer = this.engine.layers.get(el.layerId);
-        if (layer && (!layer.visible || layer.locked)) continue;
-      }
-
-      if ((el.type === 'pen' || el.type === 'lasso_brush') && el.points && el.points.length > 0) {
-        const strokeThreshold = eraseRadius + ((el.strokeWidth || 2) / 2);
-        const hasHit = el.points.some(
-          (p) => Math.hypot(p.x - worldPoint.x, p.y - worldPoint.y) <= strokeThreshold
-        );
-
-        if (hasHit) {
-          const segments: Point[][] = [];
-          let cur: Point[] = [];
-
-          for (const p of el.points) {
-            if (Math.hypot(p.x - worldPoint.x, p.y - worldPoint.y) > eraseRadius) {
-              cur.push(p);
-            } else {
-              if (cur.length > 0) {
-                segments.push(cur);
-                cur = [];
-              }
-            }
-          }
-          if (cur.length > 0) segments.push(cur);
-
-          const valid = segments.filter((s) => s.length > 1);
-
-          if (valid.length === 0) {
-            this.engine.submitMutation('DELETE', el.id, {});
-            this.selectedElementIds.delete(el.id);
-          } else {
-            let minX0 = Infinity, maxX0 = -Infinity, minY0 = Infinity, maxY0 = -Infinity;
-            for (const p of valid[0]) {
-              if (p.x < minX0) minX0 = p.x;
-              if (p.x > maxX0) maxX0 = p.x;
-              if (p.y < minY0) minY0 = p.y;
-              if (p.y > maxY0) maxY0 = p.y;
-            }
-            this.engine.submitMutation('UPDATE', el.id, {
-              x: minX0,
-              y: minY0,
-              width: Math.max(1, maxX0 - minX0),
-              height: Math.max(1, maxY0 - minY0),
-              points: valid[0]
-            });
-            for (let i = 1; i < valid.length; i++) {
-              let minXi = Infinity, maxXi = -Infinity, minYi = Infinity, maxYi = -Infinity;
-              for (const p of valid[i]) {
-                if (p.x < minXi) minXi = p.x;
-                if (p.x > maxXi) maxXi = p.x;
-                if (p.y < minYi) minYi = p.y;
-                if (p.y > maxYi) maxYi = p.y;
-              }
-              const newFragId = `el_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-              this.engine.submitMutation('CREATE', newFragId, {
-                type: el.type,
-                x: minXi,
-                y: minYi,
-                width: Math.max(1, maxXi - minXi),
-                height: Math.max(1, maxYi - minYi),
-                stroke: el.stroke,
-                strokeWidth: el.strokeWidth,
-                fill: el.fill,
-                opacity: el.opacity,
-                layerId: el.layerId,
-                brushType: el.brushType,
-                dash: el.dash,
-                points: valid[i]
-              });
-            }
-          }
-          this.requestRender();
-        }
-      }
-    }
-  }
-
   private distToSegment(p: Point, a: Point, b: Point): number {
     const dx = b.x - a.x;
     const dy = b.y - a.y;
@@ -1504,6 +1412,9 @@ export class CanvasEngine {
     const layerMap = this.engine.layers;
     const elements = Array.from(this.engine.speculativeElements.values()).reverse();
     for (const el of elements) {
+      // Never select eraser strokes
+      if (el.brushType === 'eraser') continue;
+
       const layer = el.layerId ? layerMap.get(el.layerId) : null;
       // Skip if layer is hidden or locked
       if (layer && (!layer.visible || layer.locked)) {
@@ -1586,6 +1497,7 @@ export class CanvasEngine {
       const maxY = Math.max(this.selectionStartPoint.y, this.selectionCurrentPoint.y);
 
       for (const [id, el] of this.engine.speculativeElements.entries()) {
+        if (el.brushType === 'eraser') continue;
         const elMinX = Math.min(el.x, el.x + el.width);
         const elMaxX = Math.max(el.x, el.x + el.width);
         const elMinY = Math.min(el.y, el.y + el.height);
@@ -1609,6 +1521,7 @@ export class CanvasEngine {
       const ry = Math.max(1, Math.abs(this.selectionCurrentPoint.y - this.selectionStartPoint.y) / 2);
 
       for (const [id, el] of this.engine.speculativeElements.entries()) {
+        if (el.brushType === 'eraser') continue;
         const elCx = el.x + el.width / 2;
         const elCy = el.y + el.height / 2;
         const normalizedDist = Math.pow((elCx - cx) / rx, 2) + Math.pow((elCy - cy) / ry, 2);
@@ -1625,6 +1538,7 @@ export class CanvasEngine {
       }
     } else if (this.selectionMode === 'lasso_select' && this.selectionLassoPoints.length > 2) {
       for (const [id, el] of this.engine.speculativeElements.entries()) {
+        if (el.brushType === 'eraser') continue;
         const elCx = el.x + el.width / 2;
         const elCy = el.y + el.height / 2;
         if (this.isPointInPolygon({ x: elCx, y: elCy }, this.selectionLassoPoints)) {
@@ -1754,31 +1668,121 @@ export class CanvasEngine {
     // 1. Draw Dot Matrix Grid
     this.drawDotGrid(ctx);
 
-    // 2. Draw Committed Elements (Filtered by layer visibility, sorted by layer order)
-    const layerMap = this.engine.layers;
-    const elements = Array.from(this.engine.speculativeElements.values());
-
-    const visibleElements = elements.filter((el) => {
-      if (!el.layerId) return true;
-      const layer = layerMap.get(el.layerId);
-      return !layer || layer.visible;
-    });
-
-    visibleElements.sort((a, b) => {
-      const orderA = a.layerId && layerMap.has(a.layerId) ? layerMap.get(a.layerId)!.order : 0;
-      const orderB = b.layerId && layerMap.has(b.layerId) ? layerMap.get(b.layerId)!.order : 0;
-      return orderA - orderB;
-    });
-
-    for (const el of visibleElements) {
-      const layer = el.layerId ? layerMap.get(el.layerId) : null;
-      const layerOpacity = layer ? layer.opacity : 1;
-      this.drawElement(ctx, el, layerOpacity);
+    // 2. Draw Committed Elements onto Offscreen Buffer with smooth direct layer-based erasing
+    if (this.elementCanvas.width !== width || this.elementCanvas.height !== height) {
+      this.elementCanvas.width = width;
+      this.elementCanvas.height = height;
+    }
+    if (this.layerCanvas.width !== width || this.layerCanvas.height !== height) {
+      this.layerCanvas.width = width;
+      this.layerCanvas.height = height;
     }
 
-    // 3. Draw In-Progress Draft Element
-    if (this.currentDraftElement) {
-      this.drawElement(ctx, this.currentDraftElement);
+    const eCtx = this.elementCtx;
+    const lCtx = this.layerCtx;
+    if (eCtx && lCtx) {
+      eCtx.setTransform(1, 0, 0, 1, 0, 0);
+      eCtx.clearRect(0, 0, width, height);
+
+      const layerMap = this.engine.layers;
+      const elements = Array.from(this.engine.speculativeElements.values());
+
+      const visibleElements = elements.filter((el) => {
+        if (!el.layerId) return true;
+        const layer = layerMap.get(el.layerId);
+        return !layer || layer.visible;
+      });
+
+      // Group elements by layerId
+      const layerGroups = new Map<string, CanvasElement[]>();
+      for (const el of visibleElements) {
+        const lid = el.layerId || 'default';
+        if (!layerGroups.has(lid)) layerGroups.set(lid, []);
+        layerGroups.get(lid)!.push(el);
+      }
+
+      const draft = this.currentDraftElement;
+      const draftLid = draft?.layerId || 'default';
+
+      // Get all layer IDs sorted by layer order
+      const sortedLayerIds = Array.from(layerGroups.keys());
+      if (draft && !sortedLayerIds.includes(draftLid)) {
+        sortedLayerIds.push(draftLid);
+      }
+
+      sortedLayerIds.sort((a, b) => {
+        const orderA = layerMap.has(a) ? layerMap.get(a)!.order : 0;
+        const orderB = layerMap.has(b) ? layerMap.get(b)!.order : 0;
+        return orderA - orderB;
+      });
+
+      // Render each layer onto layerCanvas and composite onto elementCanvas
+      for (const lid of sortedLayerIds) {
+        const layer = layerMap.get(lid);
+        const layerOpacity = layer ? layer.opacity : 1;
+        const layerEls = layerGroups.get(lid) || [];
+
+        // Clear layer buffer
+        lCtx.setTransform(1, 0, 0, 1, 0, 0);
+        lCtx.clearRect(0, 0, width, height);
+
+        // Apply camera transform to layer buffer
+        lCtx.setTransform(
+          this.camera.zoom * this.dpr,
+          0,
+          0,
+          this.camera.zoom * this.dpr,
+          this.camera.x * this.dpr,
+          this.camera.y * this.dpr
+        );
+
+        // Draw all elements on this layer (including destination-out eraser strokes)
+        for (const el of layerEls) {
+          this.drawElement(lCtx, el, 1);
+        }
+
+        // If draft element belongs to this layer, draw it live
+        if (draft && draftLid === lid) {
+          this.drawElement(lCtx, draft, 1);
+        }
+
+        // Composite this layer onto elementCanvas
+        eCtx.setTransform(1, 0, 0, 1, 0, 0);
+        eCtx.globalAlpha = layerOpacity;
+        eCtx.drawImage(this.layerCanvas, 0, 0);
+        eCtx.globalAlpha = 1;
+      }
+
+      // If no layers existed but draft is present
+      if (draft && sortedLayerIds.length === 0) {
+        lCtx.setTransform(1, 0, 0, 1, 0, 0);
+        lCtx.clearRect(0, 0, width, height);
+        lCtx.setTransform(
+          this.camera.zoom * this.dpr,
+          0,
+          0,
+          this.camera.zoom * this.dpr,
+          this.camera.x * this.dpr,
+          this.camera.y * this.dpr
+        );
+        this.drawElement(lCtx, draft, 1);
+        eCtx.setTransform(1, 0, 0, 1, 0, 0);
+        eCtx.drawImage(this.layerCanvas, 0, 0);
+      }
+
+      // 3. Composite all elements onto main canvas (above background & dot matrix grid)
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.drawImage(this.elementCanvas, 0, 0);
+
+      // Restore camera transform on main canvas for overlays
+      ctx.setTransform(
+        this.camera.zoom * this.dpr,
+        0,
+        0,
+        this.camera.zoom * this.dpr,
+        this.camera.x * this.dpr,
+        this.camera.y * this.dpr
+      );
     }
 
     // 4. Draw Selection Outlines
@@ -1944,7 +1948,7 @@ export class CanvasEngine {
       }
 
       case 'pen': {
-        if (!el.points || el.points.length < 2) break;
+        if (!el.points || el.points.length === 0) break;
         const brush = el.brushType || 'pen';
 
         if (brush === 'marker') {
@@ -2016,6 +2020,33 @@ export class CanvasEngine {
               ctx.arc(px, py, Math.random() * 1.5 + 0.5, 0, Math.PI * 2);
               ctx.fill();
             }
+          }
+          ctx.restore();
+        } else if (brush === 'eraser') {
+          // Direct Brush Eraser — smoothly carves pixels with destination-out
+          ctx.save();
+          ctx.globalCompositeOperation = 'destination-out';
+          ctx.fillStyle = '#000000';
+          ctx.strokeStyle = '#000000';
+          ctx.lineCap = 'round';
+          ctx.lineJoin = 'round';
+          ctx.lineWidth = el.strokeWidth;
+
+          if (el.points.length === 1) {
+            ctx.beginPath();
+            ctx.arc(el.points[0].x, el.points[0].y, el.strokeWidth / 2, 0, Math.PI * 2);
+            ctx.fill();
+          } else {
+            ctx.beginPath();
+            ctx.moveTo(el.points[0].x, el.points[0].y);
+
+            for (let i = 1; i < el.points.length - 1; i++) {
+              const xc = (el.points[i].x + el.points[i + 1].x) / 2;
+              const yc = (el.points[i].y + el.points[i + 1].y) / 2;
+              ctx.quadraticCurveTo(el.points[i].x, el.points[i].y, xc, yc);
+            }
+            ctx.lineTo(el.points[el.points.length - 1].x, el.points[el.points.length - 1].y);
+            ctx.stroke();
           }
           ctx.restore();
         } else {
@@ -2131,6 +2162,7 @@ export class CanvasEngine {
     color: string,
     label?: string
   ): void {
+    if (el.brushType === 'eraser') return;
     ctx.save();
     ctx.strokeStyle = color;
     ctx.lineWidth = 2 / this.camera.zoom;
@@ -2310,6 +2342,7 @@ export class CanvasEngine {
     let maxY = -Infinity;
 
     for (const el of elements) {
+      if (el.brushType === 'eraser') continue;
       minX = Math.min(minX, el.x);
       minY = Math.min(minY, el.y);
       maxX = Math.max(maxX, el.x + el.width);
@@ -2328,6 +2361,7 @@ export class CanvasEngine {
 
     // Draw elements on minimap
     for (const el of elements) {
+      if (el.brushType === 'eraser') continue;
       const mx = (el.x - minX) * scale;
       const my = (el.y - minY) * scale;
       const mw = Math.max(2, el.width * scale);
