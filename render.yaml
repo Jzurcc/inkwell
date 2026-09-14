@@ -3,6 +3,7 @@ services:
     name: inkwell-studio
     env: node
     plan: free
+    region: singapore
     buildCommand: npm install && npm run build
     startCommand: npm start
     envVars:
