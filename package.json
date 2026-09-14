@@ -8,6 +8,7 @@
     "dev:server": "tsx watch server/server.ts",
     "dev:client": "vite --host",
     "server": "tsx server/server.ts",
+    "start": "tsx server/server.ts",
     "build": "vite build",
     "test": "tsx --test test/*.test.ts"
   },

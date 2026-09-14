@@ -18,6 +18,13 @@ export interface ConflictEvent {
   timestamp: number;
 }
 
+export interface AuthErrorEvent {
+  roomId: string;
+  requiresPassword: boolean;
+  error: string;
+  message: string;
+}
+
 export interface HistoryEntry {
   type: MutationType;
   elementId: string;
@@ -72,6 +79,7 @@ export class StateEngine {
   private presenceChangeListeners: Array<() => void> = [];
   private conflictListeners: Array<(evt: ConflictEvent) => void> = [];
   private layersChangeListeners: Array<() => void> = [];
+  private authErrorListeners: Array<(evt: AuthErrorEvent) => void> = [];
 
   constructor(wsClient?: WebSocketClient) {
     this.ws = wsClient || new WebSocketClient();
@@ -122,12 +130,23 @@ export class StateEngine {
           this.handleRoomClear();
           break;
         }
+        case ProtocolAction.ROOM_AUTH_ERROR: {
+          const payload = msg.payload as AuthErrorEvent;
+          this.notifyAuthError(payload);
+          break;
+        }
       }
     });
   }
 
-  public setRoom(newRoomId: string): void {
-    if (this.roomId === newRoomId) return;
+  public roomPassword?: string;
+
+  public setRoom(newRoomId: string, password?: string): void {
+    this.roomPassword = password;
+    if (this.roomId === newRoomId) {
+      this.joinCurrentRoom();
+      return;
+    }
     this.roomId = newRoomId;
     this.authoritativeElements.clear();
     this.speculativeElements.clear();
@@ -140,7 +159,8 @@ export class StateEngine {
     this.ws?.send(ProtocolAction.JOIN_ROOM, {
       roomId: this.roomId,
       clientName: this.clientName,
-      clientColor: this.clientColor
+      clientColor: this.clientColor,
+      password: this.roomPassword
     });
   }
 
@@ -449,6 +469,10 @@ export class StateEngine {
    * Handle full sync snapshot from server (initial join or reconnection)
    */
   public handleSyncState(sync: SyncStatePayload): void {
+    if (sync.clientId) {
+      this.clientId = sync.clientId;
+    }
+
     this.authoritativeElements.clear();
     this.speculativeElements.clear();
 
@@ -466,9 +490,6 @@ export class StateEngine {
 
     this.roomVersion = sync.roomVersion;
     this.lamportClock = Math.max(this.lamportClock, sync.lamportClock);
-    if (sync.clientId) {
-      this.clientId = sync.clientId;
-    }
 
     // Replay all pending unacknowledged mutations on top of new snapshot
     for (const pending of this.pendingMutations) {
@@ -560,6 +581,19 @@ export class StateEngine {
   public notifyLayersChange(): void {
     this.layersChangeListeners.forEach((fn) => {
       try { fn(); } catch (e) { console.error('Error in layer change listener', e); }
+    });
+  }
+
+  public onAuthError(callback: (evt: AuthErrorEvent) => void): () => void {
+    this.authErrorListeners.push(callback);
+    return () => {
+      this.authErrorListeners = this.authErrorListeners.filter((fn) => fn !== callback);
+    };
+  }
+
+  private notifyAuthError(evt: AuthErrorEvent): void {
+    this.authErrorListeners.forEach((fn) => {
+      try { fn(evt); } catch (e) { console.error('Error in auth error listener', e); }
     });
   }
 

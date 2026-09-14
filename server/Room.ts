@@ -35,8 +35,52 @@ export class Room {
     timestamp: number;
   }> = [];
 
-  constructor(id: string) {
+  public password?: string;
+
+  constructor(id: string, password?: string) {
     this.id = id;
+    this.password = password;
+  }
+
+  public verifyPassword(candidate?: string): boolean {
+    if (!this.password) return true;
+    return this.password === candidate;
+  }
+
+  public toSerializable(): {
+    id: string;
+    roomVersion: number;
+    lamportClock: number;
+    password?: string;
+    elements: Record<string, CanvasElement>;
+  } {
+    const elementsObj: Record<string, CanvasElement> = {};
+    for (const [id, el] of this.elements.entries()) {
+      elementsObj[id] = el;
+    }
+    return {
+      id: this.id,
+      roomVersion: this.roomVersion,
+      lamportClock: this.lamportClock,
+      password: this.password,
+      elements: elementsObj
+    };
+  }
+
+  public loadSerialized(data: {
+    roomVersion?: number;
+    lamportClock?: number;
+    password?: string;
+    elements?: Record<string, CanvasElement>;
+  }): void {
+    if (typeof data.roomVersion === 'number') this.roomVersion = data.roomVersion;
+    if (typeof data.lamportClock === 'number') this.lamportClock = data.lamportClock;
+    if (data.password) this.password = data.password;
+    if (data.elements) {
+      for (const [id, el] of Object.entries(data.elements)) {
+        this.elements.set(id, el);
+      }
+    }
   }
 
   /**

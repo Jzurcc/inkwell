@@ -7,6 +7,7 @@ import { PropertyBar } from './ui/PropertyBar.ts';
 import { StudioFooter } from './ui/StudioFooter.ts';
 import { ChaosConsole } from './ui/ChaosConsole.ts';
 import { LayerPanel } from './ui/LayerPanel.ts';
+import { LobbyModal } from './ui/LobbyModal.ts';
 
 const MONIKERS = [
   'Sunny Otter',
@@ -21,7 +22,7 @@ const MONIKERS = [
   'Kind Dolphin'
 ];
 
-const PALETTE = ['#4F46E5', '#10B981', '#F43F5E', '#F59E0B', '#0284C7', '#8B5CF6'];
+const PALETTE = ['#EA580C', '#4F46E5', '#10B981', '#F43F5E', '#F59E0B', '#0284C7', '#8B5CF6'];
 
 function getRandomItem<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
@@ -29,7 +30,7 @@ function getRandomItem<T>(arr: T[]): T {
 
 function getInitialRoomId(): string {
   const hash = window.location.hash.replace(/^#/, '').trim();
-  return hash || 'room-alpha';
+  return hash || 'studio-lounge';
 }
 
 function bootstrap(): void {
@@ -126,7 +127,12 @@ function bootstrap(): void {
   // 5. Connect WebSocket
   wsClient.connect();
 
-  console.log(`[Inkwell Studio] Booted for ${stateEngine.clientName} in ${stateEngine.roomId}`);
+  // 6. Show Co-op Room & Artist Setup Lobby Modal on first arrival
+  LobbyModal.show(stateEngine, canvasEngine, (roomId, name) => {
+    console.log(`[Inkwell] Ready for artist ${name} in room #${roomId}`);
+  });
+
+  console.log(`[Inkwell] Booted for ${stateEngine.clientName} in ${stateEngine.roomId}`);
 }
 
 window.addEventListener('DOMContentLoaded', bootstrap);

@@ -12,7 +12,23 @@ export type ElementType =
   | 'triangle'
   | 'star'
   | 'diamond'
-  | 'line';
+  | 'line'
+  | 'lasso_brush';
+
+export type CanvasTool =
+  | ElementType
+  | 'select'
+  | 'eraser'
+  | 'delete'
+  | 'marquee'
+  | 'circle_select'
+  | 'lasso_select'
+  | 'eyedropper'
+  | 'paint_bucket'
+  | 'lasso_brush'
+  | 'hand'
+  | 'zoom'
+  | 'crop';
 
 export type BrushType = 'pen' | 'marker' | 'calligraphy' | 'neon' | 'spray' | 'eraser';
 export type DashStyle = 'solid' | 'dashed' | 'dotted';
@@ -113,7 +129,8 @@ export const ProtocolAction = {
   HEARTBEAT_PING: 'HEARTBEAT_PING',
   HEARTBEAT_PONG: 'HEARTBEAT_PONG',
   ROOM_CLEAR: 'ROOM_CLEAR',
-  SIMULATE_RACE: 'SIMULATE_RACE'
+  SIMULATE_RACE: 'SIMULATE_RACE',
+  ROOM_AUTH_ERROR: 'ROOM_AUTH_ERROR'
 } as const;
 
 export type ProtocolActionType = typeof ProtocolAction[keyof typeof ProtocolAction];

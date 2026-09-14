@@ -2,6 +2,8 @@ import { StateEngine } from '../engine/StateEngine.ts';
 import { CanvasEngine } from '../canvas/CanvasEngine.ts';
 import { ShareModal } from './ShareModal.ts';
 import { StudioFooter } from './StudioFooter.ts';
+import { CloudStatusModal } from './CloudStatusModal.ts';
+import { LobbyModal } from './LobbyModal.ts';
 
 export class StudioHeader {
   private container: HTMLElement;
@@ -48,21 +50,17 @@ export class StudioHeader {
       <div class="studio-header-inner">
         <!-- Left Section: Brand, Lucidchart Controls Strip, Doc Title, Saved Status, History -->
         <div class="studio-header-left">
-          <!-- Inkwell Brand Emblem -->
-          <div class="studio-brand" title="Inkwell Studio">
+          <!-- Inkwell Brand Emblem (Inkpen icon matching start lobby) -->
+          <div class="studio-brand" title="Inkwell — Click to open Lobby" id="hdr-brand-home">
             <div class="brand-emblem-wrap">
-              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <rect x="4" y="9" width="16" height="12" rx="3.5" fill="url(#hdr-ink-grad)" stroke="#4338CA" stroke-width="1.5"/>
-                <path d="M7 9V5.5C7 4.67 7.67 4 8.5 4H15.5C16.33 4 17 4.67 17 5.5V9" stroke="#4338CA" stroke-width="1.5"/>
-                <circle cx="12" cy="15" r="2" fill="#FAF7F2"/>
-                <path d="M12 1C12 1 14.2 3.2 14.2 4.6C14.2 5.8 13.2 6.8 12 6.8C10.8 6.8 9.8 5.8 9.8 4.6C9.8 3.2 12 1 12 1Z" fill="#6366F1"/>
-                <defs>
-                  <linearGradient id="hdr-ink-grad" x1="4" y1="9" x2="20" y2="21" gradientUnits="userSpaceOnUse">
-                    <stop stop-color="#4F46E5"/>
-                    <stop offset="1" stop-color="#7C3AED"/>
-                  </linearGradient>
-                </defs>
-              </svg>
+              <div class="studio-brand-badge">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 19l7-7 3 3-7 7-3-3z"/>
+                  <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/>
+                  <path d="M2 2l7.586 7.586"/>
+                  <circle cx="11" cy="11" r="2"/>
+                </svg>
+              </div>
             </div>
             <span class="studio-brand-name">Inkwell</span>
           </div>
@@ -167,7 +165,7 @@ export class StudioHeader {
                   </div>
                   <div class="lucid-submenu">
                     <button class="lucid-sub-row" id="sub-file-new">
-                      <span>New Diagram</span>
+                      <span>New Board</span>
                       <span class="lucid-shortcut">Ctrl+N</span>
                     </button>
                     <button class="lucid-sub-row" id="sub-file-copy">
@@ -319,7 +317,7 @@ export class StudioHeader {
                     </button>
                     <button class="lucid-sub-row" id="sub-insert-diamond">
                       <span>Decision Diamond</span>
-                      <span class="lucid-shortcut">D</span>
+                      <span class="lucid-shortcut">J</span>
                     </button>
                     <button class="lucid-sub-row" id="sub-insert-line">
                       <span>Straight Line</span>
@@ -400,7 +398,7 @@ export class StudioHeader {
                       <span>Chaos & Admin Console</span>
                     </button>
                     <button class="lucid-sub-row" id="sub-help-about">
-                      <span>About Inkwell Studio</span>
+                      <span>About Inkwell</span>
                     </button>
                   </div>
                 </div>
@@ -424,20 +422,23 @@ export class StudioHeader {
             </div>
           </div>
 
-          <!-- Document / Room Title & Saved Badge (Aligned horizontally) -->
+          <!-- Document / Room Title -->
           <div class="studio-title-group">
             <input 
               type="text" 
               id="studio-doc-title" 
               class="studio-title-input" 
               value="Untitled Board" 
-              title="Click to rename diagram"
+              title="Click to rename board"
               spellcheck="false"
             />
-            <span class="sync-status-pill" id="sync-status-pill" title="All changes saved to cloud">
-              <span class="sync-status-dot"></span>
-              <span class="sync-status-label">Saved</span>
-            </span>
+            <button class="hdr-room-pill" id="hdr-btn-room" title="Switch Room or Invite Friends (Click to open Lobby)">
+              <span class="room-pill-hash">#</span>
+              <span class="room-pill-name" id="hdr-room-name">${this.engine.roomId}</span>
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="6 9 12 15 18 9"/>
+              </svg>
+            </button>
           </div>
 
           <div class="studio-v-divider"></div>
@@ -469,7 +470,9 @@ export class StudioHeader {
     const rightSlot = this.container.querySelector('#studio-header-right-slot');
     if (!rightSlot) return;
 
-    const peers = Array.from(this.engine.presences.values());
+    const peers = Array.from(this.engine.presences.values()).filter(
+      (p) => p.clientId !== this.engine.clientId
+    );
     const latency = this.engine.ws.currentLatencyMs;
     const isOffline = this.engine.ws.simulation.offline;
     const currentTheme = this.canvasEngine.theme;
@@ -598,6 +601,14 @@ export class StudioHeader {
       redoBtn.disabled = !canRedo;
       redoBtn.style.opacity = canRedo ? '1' : '0.35';
     }
+  }
+
+  public updateRoomDisplay(roomId?: string): void {
+    const rId = roomId || this.engine.roomId;
+    const nameEl = this.container.querySelector('#hdr-room-name');
+    if (nameEl) nameEl.textContent = rId;
+    const subShareRoom = this.container.querySelector('#sub-share-room span');
+    if (subShareRoom) subShareRoom.textContent = `Active Room (#${rId})`;
   }
 
   private flashCloudSaved(): void {
@@ -887,8 +898,19 @@ export class StudioHeader {
 
     this.container.querySelector('#sub-share-room')?.addEventListener('click', () => {
       closeDropdown();
-      alert(`Current Room: #${this.engine.roomId}\nClient: ${this.engine.clientName}`);
+      LobbyModal.show(this.engine, this.canvasEngine, (newRoom) => {
+        this.updateRoomDisplay(newRoom);
+      });
     });
+
+    // Room Pill and Brand Emblem click in header opens Lobby
+    const openLobby = () => {
+      LobbyModal.show(this.engine, this.canvasEngine, (newRoom) => {
+        this.updateRoomDisplay(newRoom);
+      });
+    };
+    this.container.querySelector('#hdr-btn-room')?.addEventListener('click', openLobby);
+    this.container.querySelector('#hdr-brand-home')?.addEventListener('click', openLobby);
 
     // 13. Help Submenu
     this.container.querySelector('#sub-help-shortcuts')?.addEventListener('click', () => {
@@ -903,7 +925,7 @@ export class StudioHeader {
 
     this.container.querySelector('#sub-help-about')?.addEventListener('click', () => {
       closeDropdown();
-      alert('Inkwell Studio\nProfessional real-time collaborative canvas with CRDT conflict resolution.');
+      alert('Inkwell\nProfessional real-time collaborative canvas with CRDT conflict resolution.');
     });
 
     // Search / Command Palette Button
@@ -921,7 +943,7 @@ export class StudioHeader {
 
     // Cloud status click info
     this.container.querySelector('#studio-cloud-status')?.addEventListener('click', () => {
-      alert(`Cloud State: All changes synced to room #${this.engine.roomId}.\nLatency: ${this.engine.ws.currentLatencyMs}ms`);
+      CloudStatusModal.show(this.engine);
     });
   }
 
@@ -943,7 +965,7 @@ export class StudioHeader {
   }
 
   private createNewBlank(): void {
-    if (confirm('Create a new blank diagram? All current elements in this room will be cleared.')) {
+    if (confirm('Create a new blank board? All current elements in this room will be cleared.')) {
       for (const [id] of this.engine.speculativeElements.entries()) {
         this.engine.submitMutation('DELETE', id, {});
       }
@@ -969,14 +991,14 @@ export class StudioHeader {
     }
     this.canvasEngine.selectedElementIds = newSelection;
     this.canvasEngine.requestRender();
-    alert(`Duplicated ${elements.length} element(s) into diagram copy.`);
+    alert(`Duplicated ${elements.length} element(s) into board copy.`);
   }
 
   private exportAsPng(): void {
     const canvas = document.getElementById('canvas-viewport') as HTMLCanvasElement;
     if (!canvas) return;
     const titleInput = this.container.querySelector('#studio-doc-title') as HTMLInputElement;
-    const filename = (titleInput?.value || 'inkwell-diagram').trim().toLowerCase().replace(/\s+/g, '-');
+    const filename = (titleInput?.value || 'inkwell-board').trim().toLowerCase().replace(/\s+/g, '-');
     const link = document.createElement('a');
     link.download = `${filename}.png`;
     link.href = canvas.toDataURL('image/png');
@@ -1035,7 +1057,7 @@ export class StudioHeader {
     const link = document.createElement('a');
     link.href = url;
     const titleInput = this.container.querySelector('#studio-doc-title') as HTMLInputElement;
-    const filename = (titleInput?.value || 'inkwell-diagram').trim().toLowerCase().replace(/\s+/g, '-');
+    const filename = (titleInput?.value || 'inkwell-board').trim().toLowerCase().replace(/\s+/g, '-');
     link.download = `${filename}.svg`;
     link.click();
     URL.revokeObjectURL(url);
@@ -1046,7 +1068,7 @@ export class StudioHeader {
     const data = JSON.stringify(
       {
         version: 1,
-        appName: 'Inkwell Studio',
+        appName: 'Inkwell',
         exportedAt: new Date().toISOString(),
         roomId: this.engine.roomId,
         elements
@@ -1059,7 +1081,7 @@ export class StudioHeader {
     const link = document.createElement('a');
     link.href = url;
     const titleInput = this.container.querySelector('#studio-doc-title') as HTMLInputElement;
-    const filename = (titleInput?.value || 'inkwell-diagram').trim().toLowerCase().replace(/\s+/g, '-');
+    const filename = (titleInput?.value || 'inkwell-board').trim().toLowerCase().replace(/\s+/g, '-');
     link.download = `${filename}.json`;
     link.click();
     URL.revokeObjectURL(url);

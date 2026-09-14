@@ -286,4 +286,50 @@ test('StateEngine Optimistic UI & Reconciliation', async (t) => {
   });
 });
 
+test('Room Security & State Persistence', async (t) => {
+  await t.test('verifies public room allows any candidate password', () => {
+    const publicRoom = new Room('public-canvas');
+    assert.equal(publicRoom.verifyPassword(), true);
+    assert.equal(publicRoom.verifyPassword('some-pass'), true);
+  });
+
+  await t.test('enforces password on protected room', () => {
+    const protectedRoom = new Room('vip-room', 'secret123');
+    assert.equal(protectedRoom.verifyPassword(), false);
+    assert.equal(protectedRoom.verifyPassword('wrong-pass'), false);
+    assert.equal(protectedRoom.verifyPassword('secret123'), true);
+  });
+
+  await t.test('serializes and deserializes room state cleanly', () => {
+    const original = new Room('saved-room', 'studioKey');
+    original.applyMutation({
+      mutationId: 'm1',
+      elementId: 'star_1',
+      type: 'CREATE',
+      baseVersion: 0,
+      data: { type: 'star', x: 20, y: 30, stroke: '#EA580C' },
+      authorId: 'test_user',
+      clientTimestamp: Date.now(),
+      lamportClock: 1
+    });
+
+    const serialized = original.toSerializable();
+    assert.equal(serialized.id, 'saved-room');
+    assert.equal(serialized.password, 'studioKey');
+    assert.equal(serialized.roomVersion, 1);
+    assert.ok(serialized.elements['star_1']);
+
+    // Restore into fresh room instance
+    const restored = new Room('saved-room');
+    restored.loadSerialized(serialized);
+    assert.equal(restored.password, 'studioKey');
+    assert.equal(restored.roomVersion, 1);
+    assert.equal(restored.verifyPassword('studioKey'), true);
+    assert.equal(restored.verifyPassword('wrong'), false);
+    assert.equal(restored.elements.size, 1);
+    assert.equal(restored.elements.get('star_1')?.type, 'star');
+  });
+});
+
+
 

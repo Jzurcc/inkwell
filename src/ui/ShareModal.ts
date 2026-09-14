@@ -21,7 +21,9 @@ export class ShareModal {
 
     const currentUrl = window.location.href;
     const currentRoom = this.engine.roomId;
-    const peers = Array.from(this.engine.presences.values());
+    const peers = Array.from(this.engine.presences.values()).filter(
+      (p) => p.clientId !== this.engine.clientId
+    );
 
     const overlay = document.createElement('div');
     overlay.className = 'modal-backdrop';

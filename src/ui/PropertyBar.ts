@@ -67,7 +67,16 @@ export class PropertyBar {
       arrow: 'Arrow',
       sticky_note: 'Sticky Note',
       text: 'Text Box',
-      eraser: 'Eraser'
+      eraser: 'Eraser',
+      marquee: 'Marquee Selection',
+      circle_select: 'Circle Selection',
+      lasso_select: 'Lasso Selection',
+      eyedropper: 'Color Eyedropper',
+      paint_bucket: 'Paint Bucket',
+      lasso_brush: 'Lasso Brush',
+      hand: 'Hand (Pan)',
+      zoom: 'Zoom Tool',
+      crop: 'Crop Tool'
     };
     return labels[t] || t;
   }

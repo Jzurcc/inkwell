@@ -32,7 +32,9 @@ export class PresenceBar {
   }
 
   private render(): void {
-    const peers = Array.from(this.engine.presences.values());
+    const peers = Array.from(this.engine.presences.values()).filter(
+      (p) => p.clientId !== this.engine.clientId
+    );
     const latency = this.engine.ws.currentLatencyMs;
     const isOffline = this.engine.ws.simulation.offline;
     const currentTheme = this.canvasEngine?.theme || 'light';

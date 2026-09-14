@@ -203,15 +203,17 @@ export class StudioFooter {
             <div class="shortcuts-grid">
               <div class="shortcut-row"><span>Select / Move</span><kbd>V</kbd></div>
               <div class="shortcut-row"><span>Pen Brush</span><kbd>B</kbd></div>
-              <div class="shortcut-row"><span>Eraser Tool</span><kbd>E</kbd></div>
+              <div class="shortcut-row"><span>Spray Brush</span><kbd>S</kbd></div>
+              <div class="shortcut-row"><span>Part Eraser Brush</span><kbd>E</kbd></div>
+              <div class="shortcut-row"><span>Delete Art Element</span><kbd>D</kbd></div>
+              <div class="shortcut-row"><span>Zoom Tool</span><kbd>O</kbd></div>
               <div class="shortcut-row"><span>Rectangle</span><kbd>R</kbd></div>
-              <div class="shortcut-row"><span>Circle</span><kbd>C / O</kbd></div>
+              <div class="shortcut-row"><span>Circle</span><kbd>C</kbd></div>
               <div class="shortcut-row"><span>Triangle</span><kbd>G</kbd></div>
               <div class="shortcut-row"><span>5-Point Star</span><kbd>K</kbd></div>
-              <div class="shortcut-row"><span>Decision Diamond</span><kbd>D</kbd></div>
+              <div class="shortcut-row"><span>Decision Diamond</span><kbd>J</kbd></div>
               <div class="shortcut-row"><span>Straight Line</span><kbd>L</kbd></div>
               <div class="shortcut-row"><span>Arrow Connector</span><kbd>A</kbd></div>
-              <div class="shortcut-row"><span>Sticky Note</span><kbd>S</kbd></div>
               <div class="shortcut-row"><span>Text Label</span><kbd>T</kbd></div>
             </div>
           </div>

@@ -18,16 +18,63 @@ const DIST_DIR = path.resolve(ROOT_DIR, 'dist');
 const PUBLIC_DIR = path.resolve(ROOT_DIR, 'public');
 
 const PORT = Number(process.env.PORT) || 4000;
+const DATA_DIR = path.resolve(ROOT_DIR, 'data', 'rooms');
 
-// In-memory rooms
+// In-memory rooms with debounced disk persistence
 const rooms = new Map<string, Room>();
+const saveTimers = new Map<string, NodeJS.Timeout>();
 
-function getOrCreateRoom(roomId: string): Room {
+function getSafeRoomFileName(roomId: string): string {
+  return roomId.replace(/[^a-zA-Z0-9_-]/g, '_') + '.json';
+}
+
+function scheduleSaveRoom(room: Room): void {
+  const existingTimer = saveTimers.get(room.id);
+  if (existingTimer) {
+    clearTimeout(existingTimer);
+  }
+
+  const timer = setTimeout(() => {
+    saveTimers.delete(room.id);
+    try {
+      if (!fs.existsSync(DATA_DIR)) {
+        fs.mkdirSync(DATA_DIR, { recursive: true });
+      }
+      const filePath = path.join(DATA_DIR, getSafeRoomFileName(room.id));
+      fs.writeFileSync(filePath, JSON.stringify(room.toSerializable(), null, 2), 'utf-8');
+      console.log(`[Persistence] Saved room snapshot: "${room.id}"`);
+    } catch (err) {
+      console.error(`[Persistence] Error saving room "${room.id}":`, err);
+    }
+  }, 1200);
+
+  saveTimers.set(room.id, timer);
+}
+
+function getOrCreateRoom(roomId: string, initialPassword?: string): Room {
   let room = rooms.get(roomId);
   if (!room) {
-    room = new Room(roomId);
+    room = new Room(roomId, initialPassword);
+
+    // Attempt to restore room state from disk
+    const diskFile = path.join(DATA_DIR, getSafeRoomFileName(roomId));
+    if (fs.existsSync(diskFile)) {
+      try {
+        const raw = fs.readFileSync(diskFile, 'utf-8');
+        const data = JSON.parse(raw);
+        room.loadSerialized(data);
+        console.log(`[Persistence] Restored room "${roomId}" from disk (${room.elements.size} elements, v${room.roomVersion})`);
+      } catch (err) {
+        console.error(`[Persistence] Failed to restore room "${roomId}" from disk:`, err);
+      }
+    }
+
+    if (initialPassword && !room.password) {
+      room.password = initialPassword;
+    }
+
     rooms.set(roomId, room);
-    console.log(`[Room] Created new room: "${roomId}"`);
+    console.log(`[Room] Created/Loaded room: "${roomId}" (password: ${room.password ? 'protected' : 'public'})`);
   }
   return room;
 }
@@ -72,35 +119,56 @@ const server = http.createServer((req, res) => {
       id: r.id,
       version: r.roomVersion,
       elementCount: r.elements.size,
-      clientCount: r.clients.size
+      clientCount: r.clients.size,
+      hasPassword: Boolean(r.password)
     }));
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(roomSummaries));
     return;
   }
 
-  // Static File Serving (dist or public fallback)
+  // Static File Serving (dist or public fallback) with Path Traversal Protection
   const targetDir = fs.existsSync(DIST_DIR) ? DIST_DIR : PUBLIC_DIR;
-  let filePath = path.join(targetDir, url.pathname === '/' ? 'index.html' : url.pathname);
+  const rawPath = url.pathname === '/' ? 'index.html' : url.pathname.replace(/^\/+/, '');
+  let filePath = path.resolve(targetDir, rawPath);
 
-  // If path doesn't exist and doesn't have an extension, try index.html (SPA)
+  // Path Traversal Security Hardening
+  if (!filePath.startsWith(targetDir)) {
+    res.writeHead(403, { 'Content-Type': 'text/plain' });
+    res.end('Forbidden');
+    return;
+  }
+
+  // SPA fallback for non-extension client routes
   if (!fs.existsSync(filePath) && !path.extname(filePath)) {
-    filePath = path.join(targetDir, 'index.html');
+    filePath = path.resolve(targetDir, 'index.html');
   }
 
   if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
     const ext = path.extname(filePath).toLowerCase();
     const mimeTypes: Record<string, string> = {
-      '.html': 'text/html',
-      '.js': 'text/javascript',
-      '.css': 'text/css',
+      '.html': 'text/html; charset=utf-8',
+      '.js': 'text/javascript; charset=utf-8',
+      '.mjs': 'text/javascript; charset=utf-8',
+      '.css': 'text/css; charset=utf-8',
       '.json': 'application/json',
       '.svg': 'image/svg+xml',
       '.png': 'image/png',
-      '.ico': 'image/x-icon'
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.webp': 'image/webp',
+      '.gif': 'image/gif',
+      '.ico': 'image/x-icon',
+      '.woff': 'font/woff',
+      '.woff2': 'font/woff2',
+      '.ttf': 'font/ttf',
+      '.map': 'application/json'
     };
 
-    res.writeHead(200, { 'Content-Type': mimeTypes[ext] || 'application/octet-stream' });
+    res.writeHead(200, {
+      'Content-Type': mimeTypes[ext] || 'application/octet-stream',
+      'Cache-Control': ext === '.html' ? 'no-cache' : 'public, max-age=31536000, immutable'
+    });
     fs.createReadStream(filePath).pipe(res);
     return;
   }
@@ -144,13 +212,38 @@ wss.on('connection', (ws: WebSocket) => {
           roomId: string;
           clientName?: string;
           clientColor?: string;
+          password?: string;
         };
         const roomId = payload.roomId || 'default-room';
+        const candidatePassword = payload.password?.trim() || undefined;
+
+        // Fetch or restore room from disk
+        const room = getOrCreateRoom(roomId, candidatePassword);
+
+        // If the room has a password set, verify credentials
+        if (room.password) {
+          if (!candidatePassword || candidatePassword !== room.password) {
+            console.log(`[Auth] Rejected client ${ctx.id} for protected room "${roomId}" (invalid password)`);
+            ws.send(
+              createMessage(ProtocolAction.ROOM_AUTH_ERROR, {
+                roomId,
+                requiresPassword: true,
+                error: 'invalid_password',
+                message: candidatePassword ? 'Incorrect room password.' : 'This room is password protected.'
+              })
+            );
+            return;
+          }
+        } else if (candidatePassword && !room.password) {
+          // If host is the first one setting a password
+          room.password = candidatePassword;
+          scheduleSaveRoom(room);
+        }
+
         ctx.roomId = roomId;
         ctx.name = payload.clientName || ctx.name;
         ctx.color = payload.clientColor || ctx.color;
 
-        const room = getOrCreateRoom(roomId);
         room.addClient(ctx.id, ws, ctx.name, ctx.color);
 
         // Send full state snapshot to the newly joined client
@@ -168,6 +261,9 @@ wss.on('connection', (ws: WebSocket) => {
         mutation.authorId = ctx.id; // Force author identity
 
         const result = room.applyMutation(mutation);
+
+        // Schedule debounced disk snapshot
+        scheduleSaveRoom(room);
 
         // Send ACK back to the author
         ws.send(createMessage(ProtocolAction.MUTATION_ACK, result.ack));
@@ -217,6 +313,7 @@ wss.on('connection', (ws: WebSocket) => {
         const room = rooms.get(ctx.roomId);
         if (room) {
           room.clear(ctx.id);
+          scheduleSaveRoom(room);
         }
         break;
       }

@@ -1,4 +1,4 @@
-import { BrushType, CanvasElement, DashStyle, ElementType, Point } from '../types.ts';
+import { BrushType, CanvasElement, CanvasTool, DashStyle, ElementType, Point } from '../types.ts';
 import { StateEngine } from '../engine/StateEngine.ts';
 import { TextEditModal } from '../ui/TextEditModal.ts';
 
@@ -25,17 +25,24 @@ export class CanvasEngine {
   private dpr: number = 1;
 
   // Active Tool & Creative Customization State
-  public activeTool: ElementType | 'select' | 'eraser' = 'select';
+  public activeTool: CanvasTool = 'select';
   /** Erase mode overlays on top of the current brush without changing activeTool */
   public isEraserMode: boolean = false;
   /** Tool that was active before erase mode was enabled, used to restore on toggle-off */
-  private preEraseTool: ElementType | 'select' | 'eraser' = 'select';
+  private preEraseTool: CanvasTool = 'select';
   public strokeColor: string = '#0F172A';
   public strokeWidth: number = 3;
   public fillColor: string = 'transparent';
   public elementOpacity: number = 1;
   public activeBrushType: BrushType = 'pen';
   public activeDashStyle: DashStyle = 'solid';
+
+  // Area Selection (Marquee / Circle / Lasso)
+  public isAreaSelecting: boolean = false;
+  public selectionMode: 'marquee' | 'circle_select' | 'lasso_select' | null = null;
+  public selectionStartPoint: Point = { x: 0, y: 0 };
+  public selectionCurrentPoint: Point = { x: 0, y: 0 };
+  public selectionLassoPoints: Point[] = [];
 
   // Selection & Manipulation
   public selectedElementIds: Set<string> = new Set();
@@ -62,7 +69,7 @@ export class CanvasEngine {
   public metrics: RenderMetrics = { fps: 60, frameTimeMs: 0, elementCount: 0 };
 
   // UI Sync listeners
-  private toolChangeListeners: Array<(tool: ElementType | 'select' | 'eraser') => void> = [];
+  private toolChangeListeners: Array<(tool: CanvasTool) => void> = [];
   private styleChangeListeners: Array<() => void> = [];
   private selectionChangeListeners: Array<() => void> = [];
   private eraserModeChangeListeners: Array<(enabled: boolean) => void> = [];
@@ -138,6 +145,7 @@ export class CanvasEngine {
     this.engine.onPresenceChange(() => {
       // Update target positions for remote cursors
       for (const [clientId, presence] of this.engine.presences.entries()) {
+        if (clientId === this.engine.clientId) continue;
         if (presence.cursor) {
           const existing = this.lerpedCursors.get(clientId);
           if (!existing) {
@@ -243,14 +251,74 @@ export class CanvasEngine {
 
       // Tool shortcuts
       if (!e.ctrlKey && !e.metaKey) {
+        // Shift + key cycles subtypes
+        if (e.shiftKey) {
+          if (e.key === 'B' || e.key === 'b') {
+            e.preventDefault();
+            this.cycleBrushType();
+            return;
+          }
+          if (e.key === 'M' || e.key === 'm') {
+            e.preventDefault();
+            this.cycleSelectionTool();
+            return;
+          }
+          if (e.key === 'G' || e.key === 'g' || e.key === 'L' || e.key === 'l') {
+            e.preventDefault();
+            this.cycleFillTool();
+            return;
+          }
+          if (e.key === 'R' || e.key === 'r') {
+            e.preventDefault();
+            this.cycleShapeTool();
+            return;
+          }
+          if (e.key === 'T' || e.key === 't' || e.key === 'S' || e.key === 's') {
+            e.preventDefault();
+            this.cycleTextTool();
+            return;
+          }
+        }
+
         if (e.key === 'v' || e.key === 'V') this.setTool('select');
-        if (e.key === 'b' || e.key === 'B' || e.key === 'p' || e.key === 'P') this.setTool('pen');
+        if (e.key === 'b' || e.key === 'p' || (!e.shiftKey && (e.key === 'B' || e.key === 'P'))) {
+          this.setEraserMode(false);
+          this.setBrushType('pen');
+        }
         if (e.key === 'e' || e.key === 'E') this.toggleEraserMode();
-        if (e.key === 'r' || e.key === 'R') this.setTool('rectangle');
-        if (e.key === 'c' || e.key === 'C') this.setTool('circle');
+        if (e.key === 'd' || e.key === 'D') {
+          if (this.selectedElementIds.size > 0) {
+            this.deleteSelected();
+          } else {
+            this.setEraserMode(false);
+            this.setTool('delete');
+          }
+        }
+        if (e.key === 'j' || e.key === 'J') this.setTool('diamond');
+        if (e.key === 'r' || (!e.shiftKey && e.key === 'R')) this.setTool('rectangle');
+        if (e.key === 'c' || e.key === 'C') this.setTool('crop');
         if (e.key === 'a' || e.key === 'A') this.setTool('arrow');
-        if (e.key === 's' || e.key === 'S') this.setTool('sticky_note');
-        if (e.key === 't' || e.key === 'T') this.setTool('text');
+        if (e.key === 's' || (!e.shiftKey && (e.key === 'S' || e.key === 's'))) {
+          this.setEraserMode(false);
+          this.setBrushType('spray');
+        }
+        if (e.key === 't' || (!e.shiftKey && e.key === 'T')) this.setTool('text');
+        if (e.key === 'm' || (!e.shiftKey && e.key === 'M')) this.setTool('marquee');
+        if (e.key === 'l' || (!e.shiftKey && e.key === 'L')) this.setTool('lasso_select');
+        if (e.key === 'g' || (!e.shiftKey && e.key === 'G')) this.setTool('paint_bucket');
+        if (e.key === 'i' || e.key === 'I') this.setTool('eyedropper');
+        if (e.key === 'h' || e.key === 'H') this.setTool('hand');
+        if (e.key === 'o' || e.key === 'O') this.setTool('zoom');
+
+        // Direct brush subtypes
+        if (e.key === 'n' || e.key === 'N') {
+          this.setEraserMode(false);
+          this.setBrushType('neon');
+        }
+        if (e.key === 'k' || e.key === 'K') {
+          this.setEraserMode(false);
+          this.setBrushType('calligraphy');
+        }
 
         // Color number shortcuts (1-6)
         const palette = ['#38BDF8', '#22C55E', '#818CF8', '#F43F5E', '#F59E0B', '#F8FAFC'];
@@ -272,7 +340,7 @@ export class CanvasEngine {
       if (e.code === 'Space') {
         this.isSpacePressed = false;
         this.isPanning = false;
-        el.style.cursor = this.activeTool === 'select' ? 'default' : 'crosshair';
+        el.style.cursor = this.activeTool === 'select' ? 'default' : this.activeTool === 'hand' ? 'grab' : 'crosshair';
       }
     });
 
@@ -280,7 +348,7 @@ export class CanvasEngine {
     el.addEventListener('dblclick', this.handleDoubleClick.bind(this));
   }
 
-  public onToolChange(callback: (tool: ElementType | 'select' | 'eraser') => void): () => void {
+  public onToolChange(callback: (tool: CanvasTool) => void): () => void {
     this.toolChangeListeners.push(callback);
     return () => {
       this.toolChangeListeners = this.toolChangeListeners.filter((fn) => fn !== callback);
@@ -305,14 +373,26 @@ export class CanvasEngine {
     this.selectionChangeListeners.forEach((fn) => fn());
   }
 
-  public setTool(tool: ElementType | 'select' | 'eraser'): void {
+  public setTool(tool: CanvasTool): void {
     // If switching away from eraser mode via setTool, clear the mode flag
     if (tool !== 'eraser' && this.isEraserMode) {
       this.isEraserMode = false;
       this.eraserModeChangeListeners.forEach((fn) => fn(false));
     }
     this.activeTool = tool;
-    this.canvas.style.cursor = tool === 'select' ? 'default' : tool === 'eraser' ? 'cell' : 'crosshair';
+    if (tool === 'select') {
+      this.canvas.style.cursor = 'default';
+    } else if (tool === 'hand') {
+      this.canvas.style.cursor = 'grab';
+    } else if (tool === 'zoom') {
+      this.canvas.style.cursor = 'zoom-in';
+    } else if (tool === 'eraser') {
+      this.canvas.style.cursor = 'cell';
+    } else if (tool === 'delete') {
+      this.canvas.style.cursor = 'crosshair';
+    } else {
+      this.canvas.style.cursor = 'crosshair';
+    }
     this.engine.updateLocalPresence({ activeTool: tool as any });
     this.toolChangeListeners.forEach((fn) => fn(tool));
   }
@@ -343,6 +423,47 @@ export class CanvasEngine {
     return () => {
       this.eraserModeChangeListeners = this.eraserModeChangeListeners.filter((fn) => fn !== callback);
     };
+  }
+
+  public cycleBrushType(): void {
+    const brushes: BrushType[] = ['pen', 'marker', 'neon', 'calligraphy', 'spray'];
+    const idx = brushes.indexOf(this.activeBrushType);
+    const nextIdx = (idx + 1) % brushes.length;
+    this.activeBrushType = brushes[nextIdx];
+    this.setEraserMode(false);
+    this.setTool('pen');
+  }
+
+  public cycleSelectionTool(): void {
+    const selectionTools: CanvasTool[] = ['marquee', 'circle_select', 'lasso_select'];
+    const idx = selectionTools.indexOf(this.activeTool);
+    const nextIdx = (idx + 1) % selectionTools.length;
+    this.setEraserMode(false);
+    this.setTool(selectionTools[nextIdx]);
+  }
+
+  public cycleFillTool(): void {
+    const fillTools: CanvasTool[] = ['paint_bucket', 'lasso_brush'];
+    const idx = fillTools.indexOf(this.activeTool);
+    const nextIdx = (idx + 1) % fillTools.length;
+    this.setEraserMode(false);
+    this.setTool(fillTools[nextIdx]);
+  }
+
+  public cycleShapeTool(): void {
+    const shapes: CanvasTool[] = ['rectangle', 'circle', 'triangle', 'star', 'diamond', 'line', 'arrow'];
+    const idx = shapes.indexOf(this.activeTool);
+    const nextIdx = (idx + 1) % shapes.length;
+    this.setEraserMode(false);
+    this.setTool(shapes[nextIdx]);
+  }
+
+  public cycleTextTool(): void {
+    const textTools: CanvasTool[] = ['text', 'sticky_note'];
+    const idx = textTools.indexOf(this.activeTool);
+    const nextIdx = (idx + 1) % textTools.length;
+    this.setEraserMode(false);
+    this.setTool(textTools[nextIdx]);
   }
 
   public setStrokeColor(color: string): void {
@@ -376,7 +497,7 @@ export class CanvasEngine {
     this.activeBrushType = brush;
     if (brush === 'eraser') {
       this.setTool('eraser');
-    } else if (this.activeTool !== 'pen') {
+    } else {
       this.setTool('pen');
     }
     this.styleChangeListeners.forEach((fn) => fn());
@@ -450,12 +571,79 @@ export class CanvasEngine {
       return;
     }
 
-    // Eraser mode — works as toggle overlay over any drawing tool
-    if (this.isEraserMode || this.activeTool === 'eraser') {
+    // Delete element tool (D) — deletes the entire art element or shape
+    if (this.activeTool === 'delete') {
       const hit = this.hitTest(worldPoint);
       if (hit) {
         this.engine.submitMutation('DELETE', hit.id, {});
+        this.selectedElementIds.delete(hit.id);
+        this.notifySelectionChange();
       }
+      return;
+    }
+
+    // Part Eraser mode (E) — acts as a brush and deletes parts of the drawing
+    if (this.isEraserMode || this.activeTool === 'eraser') {
+      this.applyPartEraserAt(worldPoint);
+      return;
+    }
+
+    if (this.activeTool === 'hand') {
+      this.isPanning = true;
+      this.lastPanPoint = { x: e.clientX, y: e.clientY };
+      this.canvas.style.cursor = 'grabbing';
+      return;
+    }
+
+    if (this.activeTool === 'zoom') {
+      const zoomFactor = (e.altKey || e.shiftKey) ? 0.8 : 1.25;
+      const newZoom = Math.min(4.0, Math.max(0.15, this.camera.zoom * zoomFactor));
+      const world = this.screenToWorld(screenX, screenY);
+      this.camera.zoom = newZoom;
+      this.camera.x = screenX - world.x * newZoom;
+      this.camera.y = screenY - world.y * newZoom;
+      this.requestRender();
+      return;
+    }
+
+    if (this.activeTool === 'eyedropper') {
+      const hit = this.hitTest(worldPoint);
+      if (hit) {
+        if (hit.fill && hit.fill !== 'transparent') {
+          this.setFillColor(hit.fill);
+        }
+        if (hit.stroke) {
+          this.setStrokeColor(hit.stroke);
+        }
+      }
+      return;
+    }
+
+    if (this.activeTool === 'paint_bucket') {
+      const hit = this.hitTest(worldPoint);
+      if (hit) {
+        const fillToApply = this.fillColor !== 'transparent' ? this.fillColor : this.strokeColor;
+        if (hit.type === 'line' || hit.type === 'arrow') {
+          this.engine.submitMutation('UPDATE', hit.id, { stroke: fillToApply });
+        } else {
+          this.engine.submitMutation('UPDATE', hit.id, { fill: fillToApply });
+        }
+        this.requestRender();
+      }
+      return;
+    }
+
+    if (this.activeTool === 'marquee' || this.activeTool === 'circle_select' || this.activeTool === 'lasso_select') {
+      this.isAreaSelecting = true;
+      this.selectionMode = this.activeTool;
+      this.selectionStartPoint = worldPoint;
+      this.selectionCurrentPoint = worldPoint;
+      this.selectionLassoPoints = [worldPoint];
+      if (!e.shiftKey) {
+        this.selectedElementIds.clear();
+        this.notifySelectionChange();
+      }
+      this.requestRender();
       return;
     }
 
@@ -463,7 +651,27 @@ export class CanvasEngine {
     this.isDrawing = true;
     const newId = `el_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
-    if (this.activeTool === 'pen') {
+    if (this.activeTool === 'lasso_brush') {
+      this.currentPenPoints = [worldPoint];
+      this.currentDraftElement = {
+        id: newId,
+        type: 'lasso_brush',
+        x: worldPoint.x,
+        y: worldPoint.y,
+        width: 0,
+        height: 0,
+        stroke: this.strokeColor,
+        strokeWidth: Math.max(1, this.strokeWidth),
+        fill: this.fillColor !== 'transparent' ? this.fillColor : '#38BDF8',
+        opacity: this.elementOpacity,
+        layerId: this.engine.activeLayerId,
+        points: this.currentPenPoints,
+        authorId: this.engine.clientId,
+        version: 1,
+        lamportClock: this.engine.lamportClock + 1,
+        updatedAt: Date.now()
+      };
+    } else if (this.activeTool === 'pen') {
       this.currentPenPoints = [worldPoint];
       this.currentDraftElement = {
         id: newId,
@@ -539,10 +747,15 @@ export class CanvasEngine {
       return;
     } else {
       // Rectangle, Circle, Arrow, Triangle, Star, Diamond, Line
+      const shapeTypes: ElementType[] = ['rectangle', 'circle', 'triangle', 'star', 'diamond', 'line', 'arrow'];
+      if (!shapeTypes.includes(this.activeTool as ElementType)) {
+        this.isDrawing = false;
+        return;
+      }
       this.dragStartMouse = worldPoint;
       this.currentDraftElement = {
         id: newId,
-        type: this.activeTool,
+        type: this.activeTool as ElementType,
         x: worldPoint.x,
         y: worldPoint.y,
         width: 1,
@@ -572,12 +785,20 @@ export class CanvasEngine {
     // Broadcast live cursor to peers (throttled inside StateEngine)
     this.engine.updateLocalPresence({ cursor: worldPoint });
 
-    // Eraser dragging — works as toggle overlay over any drawing tool
-    if ((this.isEraserMode || this.activeTool === 'eraser') && (e.buttons === 1)) {
+    // Delete element dragging (D)
+    if (this.activeTool === 'delete' && (e.buttons === 1)) {
       const hit = this.hitTest(worldPoint);
       if (hit) {
         this.engine.submitMutation('DELETE', hit.id, {});
+        this.selectedElementIds.delete(hit.id);
+        this.notifySelectionChange();
       }
+      return;
+    }
+
+    // Part Eraser dragging (E) — carves parts out of drawing strokes
+    if ((this.isEraserMode || this.activeTool === 'eraser') && (e.buttons === 1)) {
+      this.applyPartEraserAt(worldPoint);
       return;
     }
 
@@ -617,9 +838,19 @@ export class CanvasEngine {
       return;
     }
 
+    // Area selection dragging
+    if (this.isAreaSelecting) {
+      this.selectionCurrentPoint = worldPoint;
+      if (this.selectionMode === 'lasso_select') {
+        this.selectionLassoPoints.push(worldPoint);
+      }
+      this.requestRender();
+      return;
+    }
+
     // Active Drawing
     if (this.isDrawing && this.currentDraftElement) {
-      if (this.currentDraftElement.type === 'pen') {
+      if (this.currentDraftElement.type === 'pen' || this.currentDraftElement.type === 'lasso_brush') {
         this.currentPenPoints.push(worldPoint);
       } else {
         const minX = Math.min(this.dragStartMouse.x, worldPoint.x);
@@ -646,7 +877,14 @@ export class CanvasEngine {
   private handleMouseUp(): void {
     if (this.isPanning) {
       this.isPanning = false;
-      this.canvas.style.cursor = this.isSpacePressed ? 'grab' : 'default';
+      this.canvas.style.cursor = this.isSpacePressed ? 'grab' : this.activeTool === 'hand' ? 'grab' : 'default';
+    }
+
+    if (this.isAreaSelecting) {
+      this.isAreaSelecting = false;
+      this.applyAreaSelection();
+      this.requestRender();
+      return;
     }
 
     // Commit Dragged Selection
@@ -658,7 +896,7 @@ export class CanvasEngine {
         if (el && init && (el.x !== init.x || el.y !== init.y)) {
           const update: Record<string, unknown> = { x: el.x, y: el.y };
           // Persist updated points for pen strokes
-          if (el.type === 'pen' && el.points) {
+          if ((el.type === 'pen' || el.type === 'lasso_brush') && el.points) {
             update.points = el.points;
           }
           this.engine.submitMutation('UPDATE', id, update);
@@ -674,7 +912,34 @@ export class CanvasEngine {
       const el = this.currentDraftElement;
       this.currentDraftElement = null;
 
-      if (el.type === 'pen') {
+      if (el.type === 'lasso_brush') {
+        if (this.currentPenPoints.length > 2) {
+          let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+          for (const p of this.currentPenPoints) {
+            minX = Math.min(minX, p.x);
+            maxX = Math.max(maxX, p.x);
+            minY = Math.min(minY, p.y);
+            maxY = Math.max(maxY, p.y);
+          }
+          this.engine.submitMutation('CREATE', el.id, {
+            type: 'lasso_brush',
+            x: minX,
+            y: minY,
+            width: Math.max(10, maxX - minX),
+            height: Math.max(10, maxY - minY),
+            stroke: el.stroke,
+            strokeWidth: el.strokeWidth,
+            fill: el.fill,
+            opacity: el.opacity,
+            layerId: el.layerId,
+            points: [...this.currentPenPoints]
+          });
+          this.selectedElementIds.clear();
+          this.selectedElementIds.add(el.id);
+          this.notifySelectionChange();
+        }
+        this.currentPenPoints = [];
+      } else if (el.type === 'pen') {
         if (this.currentPenPoints.length > 1) {
           this.engine.submitMutation('CREATE', el.id, {
             type: 'pen',
@@ -799,6 +1064,72 @@ export class CanvasEngine {
     this.requestRender();
   }
 
+  // --- Part Eraser for Freehand Strokes ---
+  private applyPartEraserAt(worldPoint: Point): void {
+    const eraseRadius = Math.max(14, this.strokeWidth * 1.5);
+    const elements = Array.from(this.engine.speculativeElements.values());
+
+    for (const el of elements) {
+      if (el.layerId) {
+        const layer = this.engine.layers.get(el.layerId);
+        if (layer && (!layer.visible || layer.locked)) continue;
+      }
+
+      if ((el.type === 'pen' || el.type === 'lasso_brush') && el.points && el.points.length > 0) {
+        const hasHit = el.points.some(
+          (p) => Math.hypot(p.x - worldPoint.x, p.y - worldPoint.y) <= eraseRadius
+        );
+
+        if (hasHit) {
+          const segments: Point[][] = [];
+          let cur: Point[] = [];
+
+          for (const p of el.points) {
+            if (Math.hypot(p.x - worldPoint.x, p.y - worldPoint.y) > eraseRadius) {
+              cur.push(p);
+            } else {
+              if (cur.length > 0) {
+                segments.push(cur);
+                cur = [];
+              }
+            }
+          }
+          if (cur.length > 0) segments.push(cur);
+
+          const valid = segments.filter((s) => s.length > 1);
+
+          if (valid.length === 0) {
+            this.engine.submitMutation('DELETE', el.id, {});
+            this.selectedElementIds.delete(el.id);
+          } else {
+            this.engine.submitMutation('UPDATE', el.id, {
+              points: valid[0]
+            });
+            for (let i = 1; i < valid.length; i++) {
+              const newFragId = `el_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+              this.engine.submitMutation('CREATE', newFragId, {
+                type: el.type,
+                x: valid[i][0].x,
+                y: valid[i][0].y,
+                width: el.width,
+                height: el.height,
+                stroke: el.stroke,
+                strokeWidth: el.strokeWidth,
+                fill: el.fill,
+                opacity: el.opacity,
+                layerId: el.layerId,
+                brushType: el.brushType,
+                dash: el.dash,
+                points: valid[i]
+              });
+            }
+          }
+          this.requestRender();
+        }
+      }
+    }
+  }
+
   // --- Hit Testing ---
   private hitTest(point: Point): CanvasElement | null {
     const layerMap = this.engine.layers;
@@ -840,6 +1171,100 @@ export class CanvasEngine {
       }
     }
     return null;
+  }
+
+  private applyAreaSelection(): void {
+    if (!this.selectionMode) return;
+
+    if (this.selectionMode === 'marquee') {
+      const minX = Math.min(this.selectionStartPoint.x, this.selectionCurrentPoint.x);
+      const maxX = Math.max(this.selectionStartPoint.x, this.selectionCurrentPoint.x);
+      const minY = Math.min(this.selectionStartPoint.y, this.selectionCurrentPoint.y);
+      const maxY = Math.max(this.selectionStartPoint.y, this.selectionCurrentPoint.y);
+
+      for (const [id, el] of this.engine.speculativeElements.entries()) {
+        const elMinX = Math.min(el.x, el.x + el.width);
+        const elMaxX = Math.max(el.x, el.x + el.width);
+        const elMinY = Math.min(el.y, el.y + el.height);
+        const elMaxY = Math.max(el.y, el.y + el.height);
+
+        if (elMinX <= maxX && elMaxX >= minX && elMinY <= maxY && elMaxY >= minY) {
+          this.selectedElementIds.add(id);
+        }
+      }
+    } else if (this.selectionMode === 'circle_select') {
+      const cx = (this.selectionStartPoint.x + this.selectionCurrentPoint.x) / 2;
+      const cy = (this.selectionStartPoint.y + this.selectionCurrentPoint.y) / 2;
+      const rx = Math.max(1, Math.abs(this.selectionCurrentPoint.x - this.selectionStartPoint.x) / 2);
+      const ry = Math.max(1, Math.abs(this.selectionCurrentPoint.y - this.selectionStartPoint.y) / 2);
+
+      for (const [id, el] of this.engine.speculativeElements.entries()) {
+        const elCx = el.x + el.width / 2;
+        const elCy = el.y + el.height / 2;
+        const normalizedDist = Math.pow((elCx - cx) / rx, 2) + Math.pow((elCy - cy) / ry, 2);
+        if (normalizedDist <= 1.25) {
+          this.selectedElementIds.add(id);
+        }
+      }
+    } else if (this.selectionMode === 'lasso_select' && this.selectionLassoPoints.length > 2) {
+      for (const [id, el] of this.engine.speculativeElements.entries()) {
+        const elCx = el.x + el.width / 2;
+        const elCy = el.y + el.height / 2;
+        if (this.isPointInPolygon({ x: elCx, y: elCy }, this.selectionLassoPoints)) {
+          this.selectedElementIds.add(id);
+        }
+      }
+    }
+
+    this.engine.updateLocalPresence({ selectedIds: Array.from(this.selectedElementIds) });
+    this.notifySelectionChange();
+  }
+
+  private isPointInPolygon(p: Point, poly: Point[]): boolean {
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const xi = poly[i].x, yi = poly[i].y;
+      const xj = poly[j].x, yj = poly[j].y;
+      const intersect = ((yi > p.y) !== (yj > p.y)) && (p.x < ((xj - xi) * (p.y - yi)) / (yj - yi) + xi);
+      if (intersect) inside = !inside;
+    }
+    return inside;
+  }
+
+  private drawAreaSelection(ctx: CanvasRenderingContext2D): void {
+    ctx.save();
+    ctx.strokeStyle = '#38BDF8';
+    ctx.fillStyle = 'rgba(56, 189, 248, 0.12)';
+    ctx.lineWidth = 1.5 / this.camera.zoom;
+    ctx.setLineDash([5 / this.camera.zoom, 4 / this.camera.zoom]);
+
+    if (this.selectionMode === 'marquee') {
+      const minX = Math.min(this.selectionStartPoint.x, this.selectionCurrentPoint.x);
+      const minY = Math.min(this.selectionStartPoint.y, this.selectionCurrentPoint.y);
+      const w = Math.abs(this.selectionCurrentPoint.x - this.selectionStartPoint.x);
+      const h = Math.abs(this.selectionCurrentPoint.y - this.selectionStartPoint.y);
+      ctx.fillRect(minX, minY, w, h);
+      ctx.strokeRect(minX, minY, w, h);
+    } else if (this.selectionMode === 'circle_select') {
+      const cx = (this.selectionStartPoint.x + this.selectionCurrentPoint.x) / 2;
+      const cy = (this.selectionStartPoint.y + this.selectionCurrentPoint.y) / 2;
+      const rx = Math.abs(this.selectionCurrentPoint.x - this.selectionStartPoint.x) / 2;
+      const ry = Math.abs(this.selectionCurrentPoint.y - this.selectionStartPoint.y) / 2;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, Math.max(1, rx), Math.max(1, ry), 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    } else if (this.selectionMode === 'lasso_select' && this.selectionLassoPoints.length > 1) {
+      ctx.beginPath();
+      ctx.moveTo(this.selectionLassoPoints[0].x, this.selectionLassoPoints[0].y);
+      for (let i = 1; i < this.selectionLassoPoints.length; i++) {
+        ctx.lineTo(this.selectionLassoPoints[i].x, this.selectionLassoPoints[i].y);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   // --- Render Loop (requestAnimationFrame) ---
@@ -933,7 +1358,7 @@ export class CanvasEngine {
     }
 
     // 4. Draw Selection Outlines
-    const selectColor = this.theme === 'light' ? '#4F46E5' : '#38BDF8';
+    const selectColor = this.theme === 'light' ? '#EA580C' : '#FB923C';
     for (const id of this.selectedElementIds) {
       const el = this.engine.speculativeElements.get(id);
       if (el) {
@@ -942,7 +1367,8 @@ export class CanvasEngine {
     }
 
     // 5. Draw Remote Selected Outlines
-    for (const [, presence] of this.engine.presences.entries()) {
+    for (const [clientId, presence] of this.engine.presences.entries()) {
+      if (clientId === this.engine.clientId) continue;
       for (const id of presence.selectedIds) {
         const el = this.engine.speculativeElements.get(id);
         if (el) {
@@ -953,6 +1379,11 @@ export class CanvasEngine {
 
     // 6. Draw Remote Cursors
     this.drawRemoteCursors(ctx);
+
+    // 7. Draw Active Area Selection (Marquee / Circle / Lasso)
+    if (this.isAreaSelecting) {
+      this.drawAreaSelection(ctx);
+    }
   }
 
   private drawDotGrid(ctx: CanvasRenderingContext2D): void {
@@ -1174,6 +1605,31 @@ export class CanvasEngine {
         break;
       }
 
+      case 'lasso_brush': {
+        if (!el.points || el.points.length < 2) break;
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(el.points[0].x, el.points[0].y);
+        for (let i = 1; i < el.points.length - 1; i++) {
+          const xc = (el.points[i].x + el.points[i + 1].x) / 2;
+          const yc = (el.points[i].y + el.points[i + 1].y) / 2;
+          ctx.quadraticCurveTo(el.points[i].x, el.points[i].y, xc, yc);
+        }
+        ctx.lineTo(el.points[el.points.length - 1].x, el.points[el.points.length - 1].y);
+        ctx.closePath();
+        if (el.fill && el.fill !== 'transparent') {
+          ctx.fillStyle = el.fill;
+          ctx.fill();
+        }
+        if (el.stroke && el.strokeWidth > 0) {
+          ctx.strokeStyle = el.stroke;
+          ctx.lineWidth = el.strokeWidth;
+          ctx.stroke();
+        }
+        ctx.restore();
+        break;
+      }
+
       case 'arrow': {
         const x1 = el.x;
         const y1 = el.y;
@@ -1284,6 +1740,7 @@ export class CanvasEngine {
 
   private drawRemoteCursors(ctx: CanvasRenderingContext2D): void {
     for (const [clientId, presence] of this.engine.presences.entries()) {
+      if (clientId === this.engine.clientId) continue;
       const pos = this.lerpedCursors.get(clientId);
       if (!pos) continue;
 
@@ -1386,7 +1843,7 @@ export class CanvasEngine {
     const vpMw = vpWorldW * scale;
     const vpMh = vpWorldH * scale;
 
-    mCtx.strokeStyle = this.theme === 'light' ? '#4F46E5' : '#22C55E';
+    mCtx.strokeStyle = this.theme === 'light' ? '#EA580C' : '#FB923C';
     mCtx.lineWidth = 1.5;
     mCtx.strokeRect(vpMx, vpMy, vpMw, vpMh);
   }
