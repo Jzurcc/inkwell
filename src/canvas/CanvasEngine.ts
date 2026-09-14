@@ -60,6 +60,14 @@ export class CanvasEngine {
   private lastPanPoint: Point = { x: 0, y: 0 };
   private isSpacePressed: boolean = false;
 
+  // Pointer & Multi-touch Gesture State
+  private activePointers: Map<number, { clientX: number; clientY: number; pointerType: string; pressure: number }> = new Map();
+  private isPinching: boolean = false;
+  private initialPinchDistance: number = 0;
+  private initialPinchZoom: number = 1;
+  private lastPinchMidpoint: Point = { x: 0, y: 0 };
+  private suppressDrawingUntilAllPointersUp: boolean = false;
+
   // Remote cursors interpolated positions
   private lerpedCursors: Map<string, { x: number; y: number; targetX: number; targetY: number }> = new Map();
 
@@ -84,6 +92,7 @@ export class CanvasEngine {
 
   constructor(canvas: HTMLCanvasElement, engine: StateEngine) {
     this.canvas = canvas;
+    this.canvas.style.touchAction = 'none';
     const ctx = canvas.getContext('2d', { alpha: false });
     if (!ctx) throw new Error('Failed to get 2D canvas context');
     this.ctx = ctx;
@@ -190,9 +199,10 @@ export class CanvasEngine {
   private setupEventListeners(): void {
     const el = this.canvas;
 
-    el.addEventListener('mousedown', this.handleMouseDown.bind(this));
-    window.addEventListener('mousemove', this.handleMouseMove.bind(this));
-    window.addEventListener('mouseup', this.handleMouseUp.bind(this));
+    el.addEventListener('pointerdown', this.handlePointerDown.bind(this));
+    window.addEventListener('pointermove', this.handlePointerMove.bind(this));
+    window.addEventListener('pointerup', this.handlePointerUp.bind(this));
+    window.addEventListener('pointercancel', this.handlePointerCancel.bind(this));
     el.addEventListener('wheel', this.handleWheel.bind(this), { passive: false });
 
     // Prevent native browser zoom when scrolling with Ctrl/Cmd anywhere on the window
@@ -580,11 +590,79 @@ export class CanvasEngine {
     this.requestRender();
   }
 
-  private handleMouseDown(e: MouseEvent): void {
+  private handlePointerDown(e: PointerEvent): void {
+    try {
+      this.canvas.setPointerCapture(e.pointerId);
+    } catch {}
+
+    const rawPressure = e.pointerType === 'pen' && e.pressure > 0
+      ? e.pressure
+      : (e.pressure && e.pressure > 0 ? e.pressure : 0.5);
+
+    this.activePointers.set(e.pointerId, {
+      clientX: e.clientX,
+      clientY: e.clientY,
+      pointerType: e.pointerType,
+      pressure: rawPressure
+    });
+
+    if (this.suppressDrawingUntilAllPointersUp) {
+      return;
+    }
+
+    if (this.activePointers.size === 2) {
+      if (this.isDrawing) {
+        this.isDrawing = false;
+        this.currentDraftElement = null;
+        this.currentPenPoints = [];
+      }
+      if (this.isAreaSelecting) {
+        this.isAreaSelecting = false;
+      }
+      if (this.isDraggingSelection) {
+        this.isDraggingSelection = false;
+        for (const [id, init] of this.initialElementPositions) {
+          const current = this.engine.speculativeElements.get(id);
+          if (current) {
+            current.x = init.x;
+            current.y = init.y;
+            if (init.points) current.points = init.points.map((p) => ({ ...p }));
+          }
+        }
+        this.initialElementPositions.clear();
+      }
+
+      this.isPinching = true;
+      this.suppressDrawingUntilAllPointersUp = true;
+
+      const pts = Array.from(this.activePointers.values());
+      const p1 = pts[0];
+      const p2 = pts[1];
+      const dist = Math.hypot(p2.clientX - p1.clientX, p2.clientY - p1.clientY);
+      this.initialPinchDistance = Math.max(1, dist);
+      this.initialPinchZoom = this.camera.zoom;
+
+      const rect = this.canvas.getBoundingClientRect();
+      this.lastPinchMidpoint = {
+        x: (p1.clientX + p2.clientX) / 2 - rect.left,
+        y: (p1.clientY + p2.clientY) / 2 - rect.top
+      };
+
+      this.requestRender();
+      return;
+    }
+
+    if (this.activePointers.size > 2) {
+      return;
+    }
+
     const rect = this.canvas.getBoundingClientRect();
     const screenX = e.clientX - rect.left;
     const screenY = e.clientY - rect.top;
-    const worldPoint = this.screenToWorld(screenX, screenY);
+    const worldPoint: Point = {
+      ...this.screenToWorld(screenX, screenY),
+      pressure: rawPressure
+    };
 
     // Pan with spacebar or middle mouse button
     if (this.isSpacePressed || e.button === 1) {
@@ -594,7 +672,7 @@ export class CanvasEngine {
       return;
     }
 
-    if (e.button !== 0) return; // Only left click for tools
+    if (e.button !== 0 && e.pointerType === 'mouse') return; // Only left click for mouse tools
 
     if (this.activeTool === 'select') {
       const hit = this.hitTest(worldPoint);
@@ -840,11 +918,67 @@ export class CanvasEngine {
     this.requestRender();
   }
 
-  private handleMouseMove(e: MouseEvent): void {
+  private handlePointerMove(e: PointerEvent): void {
+    if (this.activePointers.has(e.pointerId)) {
+      const existing = this.activePointers.get(e.pointerId)!;
+      const rawPressure = e.pointerType === 'pen' && e.pressure > 0
+        ? e.pressure
+        : (e.pressure && e.pressure > 0 ? e.pressure : existing.pressure);
+      this.activePointers.set(e.pointerId, {
+        clientX: e.clientX,
+        clientY: e.clientY,
+        pointerType: e.pointerType,
+        pressure: rawPressure
+      });
+    }
+
+    // Multi-touch Pinch-to-zoom & Two-finger Pan
+    if (this.isPinching && this.activePointers.size >= 2) {
+      const pts = Array.from(this.activePointers.values());
+      const p1 = pts[0];
+      const p2 = pts[1];
+      const currentDist = Math.hypot(p2.clientX - p1.clientX, p2.clientY - p1.clientY);
+      const rect = this.canvas.getBoundingClientRect();
+      const midX = (p1.clientX + p2.clientX) / 2 - rect.left;
+      const midY = (p1.clientY + p2.clientY) / 2 - rect.top;
+
+      if (this.initialPinchDistance > 10 && currentDist > 10) {
+        const scale = currentDist / this.initialPinchDistance;
+        const targetZoom = Math.min(4.0, Math.max(0.15, this.initialPinchZoom * scale));
+
+        const worldBefore = this.screenToWorld(midX, midY);
+        this.camera.zoom = targetZoom;
+        const worldAfter = this.screenToWorld(midX, midY);
+        this.camera.x += (worldAfter.x - worldBefore.x) * targetZoom;
+        this.camera.y += (worldAfter.y - worldBefore.y) * targetZoom;
+      }
+
+      // Smooth pan delta
+      const panDx = midX - this.lastPinchMidpoint.x;
+      const panDy = midY - this.lastPinchMidpoint.y;
+      this.camera.x += panDx;
+      this.camera.y += panDy;
+      this.lastPinchMidpoint = { x: midX, y: midY };
+
+      this.requestRender();
+      this.notifyStyleChange();
+      return;
+    }
+
+    if (this.suppressDrawingUntilAllPointersUp) {
+      return;
+    }
+
     const rect = this.canvas.getBoundingClientRect();
     const screenX = e.clientX - rect.left;
     const screenY = e.clientY - rect.top;
-    const worldPoint = this.screenToWorld(screenX, screenY);
+    const rawPressure = e.pointerType === 'pen' && e.pressure > 0
+      ? e.pressure
+      : (e.pressure && e.pressure > 0 ? e.pressure : 0.5);
+    const worldPoint: Point = {
+      ...this.screenToWorld(screenX, screenY),
+      pressure: rawPressure
+    };
 
     // Broadcast live cursor to peers (throttled inside StateEngine)
     this.engine.updateLocalPresence({ cursor: worldPoint });
@@ -945,6 +1079,56 @@ export class CanvasEngine {
           this.currentDraftElement.height = Math.max(10, height);
         }
       }
+      this.requestRender();
+    }
+  }
+
+  private handlePointerUp(e: PointerEvent): void {
+    try {
+      this.canvas.releasePointerCapture(e.pointerId);
+    } catch {}
+
+    this.activePointers.delete(e.pointerId);
+
+    if (this.activePointers.size === 0) {
+      const wasSuppressing = this.suppressDrawingUntilAllPointersUp;
+      this.suppressDrawingUntilAllPointersUp = false;
+      this.isPinching = false;
+      if (wasSuppressing) {
+        this.isDrawing = false;
+        this.currentDraftElement = null;
+        this.currentPenPoints = [];
+        this.requestRender();
+        return;
+      }
+    } else if (this.isPinching) {
+      // Still 1 finger touching down while lifting the other after a pinch/pan gesture
+      return;
+    }
+
+    if (this.suppressDrawingUntilAllPointersUp) {
+      return;
+    }
+
+    this.handleMouseUp();
+  }
+
+  private handlePointerCancel(e: PointerEvent): void {
+    try {
+      this.canvas.releasePointerCapture(e.pointerId);
+    } catch {}
+
+    this.activePointers.delete(e.pointerId);
+
+    if (this.activePointers.size === 0) {
+      this.suppressDrawingUntilAllPointersUp = false;
+      this.isPinching = false;
+      this.isDrawing = false;
+      this.currentDraftElement = null;
+      this.currentPenPoints = [];
+      this.isPanning = false;
+      this.isAreaSelecting = false;
+      this.isDraggingSelection = false;
       this.requestRender();
     }
   }
@@ -1749,7 +1933,11 @@ export class CanvasEngine {
             const p1 = el.points[i];
             const p2 = el.points[i + 1];
             const angle = Math.PI / 4;
-            const slantOffset = el.strokeWidth / 2;
+            const p1Pressure = p1.pressure !== undefined ? p1.pressure : 0.5;
+            const p2Pressure = p2.pressure !== undefined ? p2.pressure : 0.5;
+            const avgPressure = (p1Pressure + p2Pressure) / 2;
+            const pressureMod = Math.max(0.35, Math.min(2.2, avgPressure * 1.8));
+            const slantOffset = (el.strokeWidth / 2) * pressureMod;
             const ox = Math.cos(angle) * slantOffset;
             const oy = Math.sin(angle) * slantOffset;
 

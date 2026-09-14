@@ -676,6 +676,13 @@ export class ToolRail {
         }
       });
 
+      // Tap on corner indicator opens flyout directly (ideal for mobile touch)
+      const triangle = anchor?.querySelector('.rail-corner-triangle');
+      triangle?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.setFlyout(this.openFlyoutId === groupId ? null : groupId);
+      });
+
       // Right click: open flyout immediately
       btn?.addEventListener('contextmenu', (e) => {
         e.preventDefault();

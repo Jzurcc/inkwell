@@ -45,6 +45,7 @@ export interface Layer {
 export interface Point {
   x: number;
   y: number;
+  pressure?: number;
 }
 
 export interface CanvasElement {
