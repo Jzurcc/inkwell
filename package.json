@@ -25,13 +25,13 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "tsx": "^4.19.3",
     "ws": "^8.18.0"
   },
   "devDependencies": {
     "@types/node": "^22.13.9",
     "@types/ws": "^8.5.14",
     "concurrently": "^9.1.2",
-    "tsx": "^4.19.3",
     "typescript": "^5.8.2",
     "vite": "^6.2.0"
   }
