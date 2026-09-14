@@ -749,8 +749,6 @@ export class ToolRail {
 
   private isGroupActive(groupId: string): boolean {
     const t = this.canvasEngine.activeTool;
-    const isErase = this.canvasEngine.isEraserMode;
-    if (isErase) return false;
 
     if (groupId === 'brush_group') {
       return t === 'pen';
@@ -794,26 +792,27 @@ export class ToolRail {
     const activeTool = this.canvasEngine.activeTool;
     const isErase = this.canvasEngine.isEraserMode;
 
-    // Direct buttons
+    // Direct buttons — keep activeTool highlighted even when erase is toggled on
     const selectBtn = this.container.querySelector('#rail-btn-select');
-    selectBtn?.classList.toggle('active', activeTool === 'select' && !isErase);
+    selectBtn?.classList.toggle('active', activeTool === 'select');
 
+    // Eraser button shows active when erase mode is enabled or activeTool is eraser
     const eraserBtn = this.container.querySelector('#rail-btn-eraser');
-    eraserBtn?.classList.toggle('active', isErase);
+    eraserBtn?.classList.toggle('active', isErase || activeTool === 'eraser');
 
     const eyedropperBtn = this.container.querySelector('#rail-btn-eyedropper');
-    eyedropperBtn?.classList.toggle('active', activeTool === 'eyedropper' && !isErase);
+    eyedropperBtn?.classList.toggle('active', activeTool === 'eyedropper');
 
     const handBtn = this.container.querySelector('#rail-btn-hand');
-    handBtn?.classList.toggle('active', activeTool === 'hand' && !isErase);
+    handBtn?.classList.toggle('active', activeTool === 'hand');
 
     const zoomBtn = this.container.querySelector('#rail-btn-zoom');
-    zoomBtn?.classList.toggle('active', activeTool === 'zoom' && !isErase);
+    zoomBtn?.classList.toggle('active', activeTool === 'zoom');
 
     const deleteToolBtn = this.container.querySelector('#rail-btn-delete-tool');
-    deleteToolBtn?.classList.toggle('active', activeTool === 'delete' && !isErase);
+    deleteToolBtn?.classList.toggle('active', activeTool === 'delete');
 
-    // Flyout Group Buttons — all use standard active state
+    // Flyout Group Buttons — always reflect currently selected group tool
     Object.keys(this.groups).forEach((groupId) => {
       const btn = this.container.querySelector(`#rail-btn-${groupId}`);
       const isGroupActive = this.isGroupActive(groupId);

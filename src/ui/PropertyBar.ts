@@ -48,37 +48,41 @@ export class PropertyBar {
   }
 
   private getToolLabel(): string {
-    if (this.canvasEngine.isEraserMode) {
-      return 'Eraser';
-    }
     const t = this.canvasEngine.activeTool;
+    let base = '';
     if (t === 'pen') {
       const b = this.canvasEngine.activeBrushType;
-      return `${b.charAt(0).toUpperCase() + b.slice(1)} Brush`;
+      base = `${b.charAt(0).toUpperCase() + b.slice(1)} Brush`;
+    } else {
+      const labels: Record<string, string> = {
+        select: 'Select & Move',
+        rectangle: 'Rectangle',
+        circle: 'Circle',
+        triangle: 'Triangle',
+        star: 'Star',
+        diamond: 'Diamond',
+        line: 'Line',
+        arrow: 'Arrow',
+        sticky_note: 'Sticky Note',
+        text: 'Text Box',
+        eraser: 'Eraser',
+        marquee: 'Marquee Selection',
+        circle_select: 'Circle Selection',
+        lasso_select: 'Lasso Selection',
+        eyedropper: 'Color Eyedropper',
+        paint_bucket: 'Paint Bucket',
+        lasso_brush: 'Lasso Brush',
+        hand: 'Hand (Pan)',
+        zoom: 'Zoom Tool',
+        crop: 'Crop Tool'
+      };
+      base = labels[t] || t;
     }
-    const labels: Record<string, string> = {
-      select: 'Select & Move',
-      rectangle: 'Rectangle',
-      circle: 'Circle',
-      triangle: 'Triangle',
-      star: 'Star',
-      diamond: 'Diamond',
-      line: 'Line',
-      arrow: 'Arrow',
-      sticky_note: 'Sticky Note',
-      text: 'Text Box',
-      eraser: 'Eraser',
-      marquee: 'Marquee Selection',
-      circle_select: 'Circle Selection',
-      lasso_select: 'Lasso Selection',
-      eyedropper: 'Color Eyedropper',
-      paint_bucket: 'Paint Bucket',
-      lasso_brush: 'Lasso Brush',
-      hand: 'Hand (Pan)',
-      zoom: 'Zoom Tool',
-      crop: 'Crop Tool'
-    };
-    return labels[t] || t;
+
+    if (this.canvasEngine.isEraserMode) {
+      return `${base} (Erasing)`;
+    }
+    return base;
   }
 
   public render(): void {

@@ -28,8 +28,6 @@ export class CanvasEngine {
   public activeTool: CanvasTool = 'select';
   /** Erase mode overlays on top of the current brush without changing activeTool */
   public isEraserMode: boolean = false;
-  /** Tool that was active before erase mode was enabled, used to restore on toggle-off */
-  private preEraseTool: CanvasTool = 'select';
   public strokeColor: string = '#0F172A';
   public strokeWidth: number = 3;
   public fillColor: string = 'transparent';
@@ -70,6 +68,10 @@ export class CanvasEngine {
 
   // Remote cursors interpolated positions
   private lerpedCursors: Map<string, { x: number; y: number; targetX: number; targetY: number }> = new Map();
+
+  // Dynamic Local Brush & Eraser Cursor State
+  public isCursorOnCanvas: boolean = false;
+  public localCursorWorld: Point | null = null;
 
   // Metrics
   private frameCount = 0;
@@ -200,6 +202,16 @@ export class CanvasEngine {
     const el = this.canvas;
 
     el.addEventListener('pointerdown', this.handlePointerDown.bind(this));
+    el.addEventListener('pointerenter', () => {
+      this.isCursorOnCanvas = true;
+      this.updateCursorStyle();
+      this.requestRender();
+    });
+    el.addEventListener('pointerleave', () => {
+      this.isCursorOnCanvas = false;
+      this.localCursorWorld = null;
+      this.requestRender();
+    });
     window.addEventListener('pointermove', this.handlePointerMove.bind(this));
     window.addEventListener('pointerup', this.handlePointerUp.bind(this));
     window.addEventListener('pointercancel', this.handlePointerCancel.bind(this));
@@ -441,28 +453,52 @@ export class CanvasEngine {
     this.styleChangeListeners.forEach((fn) => fn());
   }
 
+  public updateCursorStyle(): void {
+    if (this.isSpacePressed || (this.activeTool === 'hand' && this.isPanning)) {
+      this.canvas.style.cursor = 'grabbing';
+      return;
+    }
+    if (this.activeTool === 'hand') {
+      this.canvas.style.cursor = 'grab';
+      return;
+    }
+    if (this.activeTool === 'zoom') {
+      this.canvas.style.cursor = 'zoom-in';
+      return;
+    }
+    if (this.activeTool === 'delete') {
+      this.canvas.style.cursor = 'crosshair';
+      return;
+    }
+    if (this.activeTool === 'eyedropper') {
+      this.canvas.style.cursor = 'crosshair';
+      return;
+    }
+    // Dynamic circle cursor overlay handles brush/eraser tools
+    if (this.isEraserMode || this.activeTool === 'pen' || this.activeTool === 'lasso_brush' || this.activeTool === 'eraser') {
+      this.canvas.style.cursor = 'none';
+      return;
+    }
+    if (this.activeTool === 'select') {
+      this.canvas.style.cursor = 'default';
+      return;
+    }
+    this.canvas.style.cursor = 'crosshair';
+  }
+
   public setTool(tool: CanvasTool): void {
-    // If switching away from eraser mode via setTool, clear the mode flag
-    if (tool !== 'eraser' && this.isEraserMode) {
+    if (tool === 'eraser') {
+      this.isEraserMode = true;
+      this.eraserModeChangeListeners.forEach((fn) => fn(true));
+    } else if (this.isEraserMode) {
       this.isEraserMode = false;
       this.eraserModeChangeListeners.forEach((fn) => fn(false));
     }
     this.activeTool = tool;
-    if (tool === 'select') {
-      this.canvas.style.cursor = 'default';
-    } else if (tool === 'hand') {
-      this.canvas.style.cursor = 'grab';
-    } else if (tool === 'zoom') {
-      this.canvas.style.cursor = 'zoom-in';
-    } else if (tool === 'eraser') {
-      this.canvas.style.cursor = 'cell';
-    } else if (tool === 'delete') {
-      this.canvas.style.cursor = 'crosshair';
-    } else {
-      this.canvas.style.cursor = 'crosshair';
-    }
+    this.updateCursorStyle();
     this.engine.updateLocalPresence({ activeTool: tool as any });
     this.toolChangeListeners.forEach((fn) => fn(tool));
+    this.requestRender();
   }
 
   /** Toggle eraser mode on/off without losing the current drawing tool */
@@ -473,17 +509,10 @@ export class CanvasEngine {
   public setEraserMode(enabled: boolean): void {
     if (enabled === this.isEraserMode) return;
     this.isEraserMode = enabled;
-    if (enabled) {
-      this.preEraseTool = this.activeTool;
-      this.canvas.style.cursor = 'cell';
-    } else {
-      // Restore the tool that was active before erase mode
-      const restore = this.preEraseTool === 'eraser' ? 'pen' : this.preEraseTool;
-      this.activeTool = restore;
-      this.canvas.style.cursor = restore === 'select' ? 'default' : 'crosshair';
-    }
+    this.updateCursorStyle();
     this.eraserModeChangeListeners.forEach((fn) => fn(enabled));
     this.toolChangeListeners.forEach((fn) => fn(this.activeTool));
+    this.requestRender();
   }
 
   public onEraserModeChange(callback: (enabled: boolean) => void): () => void {
@@ -980,8 +1009,17 @@ export class CanvasEngine {
       pressure: rawPressure
     };
 
+    // Track local cursor position for the dynamic brush cursor
+    this.localCursorWorld = worldPoint;
+    this.isCursorOnCanvas = true;
+
     // Broadcast live cursor to peers (throttled inside StateEngine)
     this.engine.updateLocalPresence({ cursor: worldPoint });
+
+    // Request render for smooth brush/eraser circle cursor tracking
+    if (this.isEraserMode || this.activeTool === 'pen' || this.activeTool === 'lasso_brush' || this.activeTool === 'eraser') {
+      this.requestRender();
+    }
 
     // Delete element dragging (D)
     if (this.activeTool === 'delete' && (e.buttons === 1)) {
@@ -1355,9 +1393,19 @@ export class CanvasEngine {
     this.zoomAt(cx, cy, factor);
   }
 
-  // --- Part Eraser for Freehand Strokes ---
+  // --- Part Eraser for Freehand Strokes & Shapes ---
   private applyPartEraserAt(worldPoint: Point): void {
-    const eraseRadius = Math.max(14, this.strokeWidth * 1.5);
+    const eraseRadius = Math.max(3, this.strokeWidth / 2);
+
+    // If touching a non-stroke shape (rectangle, circle, text, etc.), delete it directly
+    const directHit = this.hitTest(worldPoint);
+    if (directHit && directHit.type !== 'pen' && directHit.type !== 'lasso_brush') {
+      this.engine.submitMutation('DELETE', directHit.id, {});
+      this.selectedElementIds.delete(directHit.id);
+      this.notifySelectionChange();
+      this.requestRender();
+    }
+
     const elements = Array.from(this.engine.speculativeElements.values());
 
     for (const el of elements) {
@@ -1367,8 +1415,9 @@ export class CanvasEngine {
       }
 
       if ((el.type === 'pen' || el.type === 'lasso_brush') && el.points && el.points.length > 0) {
+        const strokeThreshold = eraseRadius + ((el.strokeWidth || 2) / 2);
         const hasHit = el.points.some(
-          (p) => Math.hypot(p.x - worldPoint.x, p.y - worldPoint.y) <= eraseRadius
+          (p) => Math.hypot(p.x - worldPoint.x, p.y - worldPoint.y) <= strokeThreshold
         );
 
         if (hasHit) {
@@ -1759,6 +1808,9 @@ export class CanvasEngine {
     if (this.isAreaSelecting) {
       this.drawAreaSelection(ctx);
     }
+
+    // 8. Draw Dynamic Local Brush & Eraser Circle Cursor Outline
+    this.drawBrushCursor(ctx);
   }
 
   private drawDotGrid(ctx: CanvasRenderingContext2D): void {
@@ -2161,6 +2213,80 @@ export class CanvasEngine {
 
       ctx.restore();
     }
+  }
+
+  /** Dynamic high-precision brush & eraser circle cursor outline */
+  private drawBrushCursor(ctx: CanvasRenderingContext2D): void {
+    if (!this.localCursorWorld || !this.isCursorOnCanvas) return;
+
+    const isBrushTool = this.activeTool === 'pen' || this.activeTool === 'lasso_brush' || this.activeTool === 'eraser';
+    if (!isBrushTool && !this.isEraserMode) return;
+
+    const { x, y } = this.localCursorWorld;
+    const radius = Math.max(2.5, this.strokeWidth / 2);
+    const isDark = this.theme !== 'light';
+
+    ctx.save();
+    const lineWidthOuter = 1.6 / this.camera.zoom;
+    const lineWidthInner = 1.0 / this.camera.zoom;
+
+    if (this.isEraserMode || this.activeTool === 'eraser') {
+      // Soft translucent reddish preview fill
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.fillStyle = isDark ? 'rgba(239, 68, 68, 0.22)' : 'rgba(239, 68, 68, 0.14)';
+      ctx.fill();
+
+      // Outer contrasting white/dark halo
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.strokeStyle = isDark ? 'rgba(0, 0, 0, 0.85)' : 'rgba(255, 255, 255, 0.95)';
+      ctx.lineWidth = lineWidthOuter;
+      ctx.stroke();
+
+      // Inner vibrant red eraser circle
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.strokeStyle = '#EF4444';
+      ctx.lineWidth = lineWidthInner;
+      ctx.stroke();
+
+      // Center crosshair / precision cross
+      const crossSize = Math.max(2 / this.camera.zoom, Math.min(4 / this.camera.zoom, radius * 0.45));
+      ctx.beginPath();
+      ctx.moveTo(x - crossSize, y);
+      ctx.lineTo(x + crossSize, y);
+      ctx.moveTo(x, y - crossSize);
+      ctx.lineTo(x, y + crossSize);
+      ctx.strokeStyle = '#EF4444';
+      ctx.lineWidth = lineWidthInner;
+      ctx.stroke();
+    } else {
+      // Brush mode: Dual contrasting ring visible over any background color
+      // Outer stroke (halo)
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.strokeStyle = isDark ? 'rgba(0, 0, 0, 0.8)' : 'rgba(255, 255, 255, 0.9)';
+      ctx.lineWidth = lineWidthOuter;
+      ctx.stroke();
+
+      // Inner crisp stroke (adapts to light/dark canvas theme)
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.strokeStyle = isDark ? 'rgba(255, 255, 255, 0.95)' : 'rgba(15, 23, 42, 0.95)';
+      ctx.lineWidth = lineWidthInner;
+      ctx.stroke();
+
+      // Center precision dot for brushes >= 5px
+      if (radius >= 3.5) {
+        ctx.beginPath();
+        ctx.arc(x, y, Math.max(0.8 / this.camera.zoom, 1 / this.camera.zoom), 0, Math.PI * 2);
+        ctx.fillStyle = isDark ? 'rgba(255, 255, 255, 0.9)' : 'rgba(15, 23, 42, 0.9)';
+        ctx.fill();
+      }
+    }
+
+    ctx.restore();
   }
 
   // --- Minimap Minimap Render ---
