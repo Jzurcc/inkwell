@@ -195,8 +195,62 @@ export class CanvasEngine {
     window.addEventListener('mouseup', this.handleMouseUp.bind(this));
     el.addEventListener('wheel', this.handleWheel.bind(this), { passive: false });
 
+    // Prevent native browser zoom when scrolling with Ctrl/Cmd anywhere on the window
+    window.addEventListener(
+      'wheel',
+      (e) => {
+        if (e.ctrlKey || e.metaKey) {
+          e.preventDefault();
+          const rect = this.canvas.getBoundingClientRect();
+          const mouseX = e.clientX - rect.left;
+          const mouseY = e.clientY - rect.top;
+          const factor = e.deltaY < 0 ? 1.1 : 0.9;
+          this.zoomAt(mouseX, mouseY, factor);
+        }
+      },
+      { passive: false }
+    );
+
     // Keyboard shortcuts
     window.addEventListener('keydown', (e) => {
+      // Intercept browser zoom shortcuts: Ctrl/Cmd + Plus, Minus, Zero
+      if (e.ctrlKey || e.metaKey) {
+        if (
+          e.key === '+' ||
+          e.key === '=' ||
+          e.code === 'Equal' ||
+          e.code === 'NumpadAdd'
+        ) {
+          e.preventDefault();
+          e.stopPropagation();
+          this.zoomIn();
+          return;
+        }
+
+        if (
+          e.key === '-' ||
+          e.key === '_' ||
+          e.code === 'Minus' ||
+          e.code === 'NumpadSubtract'
+        ) {
+          e.preventDefault();
+          e.stopPropagation();
+          this.zoomOut();
+          return;
+        }
+
+        if (
+          e.key === '0' ||
+          e.code === 'Digit0' ||
+          e.code === 'Numpad0'
+        ) {
+          e.preventDefault();
+          e.stopPropagation();
+          this.resetView();
+          return;
+        }
+      }
+
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
         return;
       }
@@ -371,6 +425,10 @@ export class CanvasEngine {
 
   public notifySelectionChange(): void {
     this.selectionChangeListeners.forEach((fn) => fn());
+  }
+
+  public notifyStyleChange(): void {
+    this.styleChangeListeners.forEach((fn) => fn());
   }
 
   public setTool(tool: CanvasTool): void {
@@ -1011,6 +1069,19 @@ export class CanvasEngine {
     }
   }
 
+  public zoomAt(screenX: number, screenY: number, factor: number): void {
+    const newZoom = Math.min(4.0, Math.max(0.15, this.camera.zoom * factor));
+    const worldBefore = this.screenToWorld(screenX, screenY);
+    this.camera.zoom = newZoom;
+    const worldAfter = this.screenToWorld(screenX, screenY);
+
+    this.camera.x += (worldAfter.x - worldBefore.x) * newZoom;
+    this.camera.y += (worldAfter.y - worldBefore.y) * newZoom;
+
+    this.requestRender();
+    this.notifyStyleChange();
+  }
+
   private handleWheel(e: WheelEvent): void {
     e.preventDefault();
 
@@ -1021,21 +1092,13 @@ export class CanvasEngine {
     if (e.ctrlKey || e.metaKey) {
       // Zoom centered at mouse position
       const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
-      const newZoom = Math.min(4.0, Math.max(0.15, this.camera.zoom * zoomFactor));
-
-      const worldBefore = this.screenToWorld(mouseX, mouseY);
-      this.camera.zoom = newZoom;
-      const worldAfter = this.screenToWorld(mouseX, mouseY);
-
-      this.camera.x += (worldAfter.x - worldBefore.x) * newZoom;
-      this.camera.y += (worldAfter.y - worldBefore.y) * newZoom;
+      this.zoomAt(mouseX, mouseY, zoomFactor);
     } else {
       // Pan with 2-finger scroll
       this.camera.x -= e.deltaX;
       this.camera.y -= e.deltaY;
+      this.requestRender();
     }
-
-    this.requestRender();
   }
 
   private handleDoubleClick(e: MouseEvent): void {
@@ -1082,18 +1145,30 @@ export class CanvasEngine {
   }
 
   public resetView(): void {
-    this.camera = { x: 0, y: 0, zoom: 1 };
+    const rect = this.canvas.getBoundingClientRect();
+    const cx = rect.width / 2;
+    const cy = rect.height / 2;
+    const worldBefore = this.screenToWorld(cx, cy);
+    this.camera.zoom = 1;
+    const worldAfter = this.screenToWorld(cx, cy);
+    this.camera.x += (worldAfter.x - worldBefore.x);
+    this.camera.y += (worldAfter.y - worldBefore.y);
     this.requestRender();
+    this.notifyStyleChange();
   }
 
-  public zoomIn(): void {
-    this.camera.zoom = Math.min(4.0, this.camera.zoom * 1.25);
-    this.requestRender();
+  public zoomIn(factor = 1.25): void {
+    const rect = this.canvas.getBoundingClientRect();
+    const cx = rect.width / 2;
+    const cy = rect.height / 2;
+    this.zoomAt(cx, cy, factor);
   }
 
-  public zoomOut(): void {
-    this.camera.zoom = Math.max(0.15, this.camera.zoom * 0.8);
-    this.requestRender();
+  public zoomOut(factor = 0.8): void {
+    const rect = this.canvas.getBoundingClientRect();
+    const cx = rect.width / 2;
+    const cy = rect.height / 2;
+    this.zoomAt(cx, cy, factor);
   }
 
   // --- Part Eraser for Freehand Strokes ---

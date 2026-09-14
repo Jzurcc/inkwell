@@ -229,7 +229,9 @@ export class StudioFooter {
               <div class="shortcut-row"><span>Command Palette</span><kbd>Ctrl + K</kbd></div>
               <div class="shortcut-row"><span>Edit Text Label</span><kbd>Enter</kbd></div>
               <div class="shortcut-row"><span>Pan Canvas</span><kbd>Space + Drag</kbd></div>
+              <div class="shortcut-row"><span>Zoom In / Out</span><kbd>Ctrl + / -</kbd></div>
               <div class="shortcut-row"><span>Zoom Canvas</span><kbd>Ctrl + Wheel</kbd></div>
+              <div class="shortcut-row"><span>Reset Zoom (100%)</span><kbd>Ctrl + 0</kbd></div>
               <div class="shortcut-row"><span>Fit to Window</span><kbd>Ctrl + 9</kbd></div>
             </div>
           </div>

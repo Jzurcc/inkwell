@@ -202,6 +202,9 @@ test('Multi-Layer State Engine & Creative Elements', async (t) => {
 
     // Test sync state normalization for legacy/default 100x100 elements
     engine.handleSyncState({
+      roomId: 'test-room',
+      clientId: 'client-1',
+      serverTimestamp: 12345,
       roomVersion: 5,
       lamportClock: 10,
       elements: {
