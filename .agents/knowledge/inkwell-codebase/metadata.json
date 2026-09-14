@@ -1,0 +1,30 @@
+{
+  "id": "inkwell-codebase",
+  "title": "Inkwell Codebase Architecture",
+  "summary": "Complete architecture map of the Inkwell collaborative canvas application. Covers file responsibilities, public APIs of all classes, DOM element ID registry, CSS class namespacing, important patterns/gotchas, server architecture, and the data/event flow between all layers. Read this before touching any file to avoid cold-navigation greps.",
+  "created": "2026-09-14",
+  "lastUpdated": "2026-09-14",
+  "tags": ["architecture", "inkwell", "canvas", "collab", "typescript"],
+  "references": [
+    { "path": "src/main.ts", "role": "Entry point / bootstrap" },
+    { "path": "src/types.ts", "role": "All shared TypeScript types" },
+    { "path": "src/engine/StateEngine.ts", "role": "CRDT state + undo/redo + presence" },
+    { "path": "src/engine/WebSocketClient.ts", "role": "WS transport + network simulation" },
+    { "path": "src/canvas/CanvasEngine.ts", "role": "Rendering + input + tools" },
+    { "path": "src/ui/StudioHeader.ts", "role": "Top bar UI" },
+    { "path": "src/ui/StudioFooter.ts", "role": "Bottom status bar" },
+    { "path": "src/ui/ToolRail.ts", "role": "Left vertical tool rail" },
+    { "path": "src/ui/PropertyBar.ts", "role": "Contextual subbar" },
+    { "path": "src/ui/LobbyModal.ts", "role": "Room creation/join lobby" },
+    { "path": "src/ui/LayerPanel.ts", "role": "Layers side drawer" },
+    { "path": "src/ui/ChaosConsole.ts", "role": "Dev admin / network chaos drawer" },
+    { "path": "src/ui/ShareModal.ts", "role": "Invite/share modal" },
+    { "path": "src/ui/CloudStatusModal.ts", "role": "Connection diagnostics modal" },
+    { "path": "src/ui/TextEditModal.ts", "role": "In-place text element editor" },
+    { "path": "server/server.ts", "role": "Node.js HTTP + WebSocket server" },
+    { "path": "server/Room.ts", "role": "Per-room state manager (server)" },
+    { "path": "server/protocol.ts", "role": "createMessage / parseMessage helpers" },
+    { "path": "public/styles/main.css", "role": "Single CSS file — all styles" },
+    { "path": "index.html", "role": "HTML shell with static DOM mount points" }
+  ]
+}

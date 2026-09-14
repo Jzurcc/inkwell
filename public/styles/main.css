@@ -1934,36 +1934,57 @@ body {
   font-size: 13px;
   font-weight: 700;
   color: var(--color-brand);
+  user-select: none;
 }
 
 .footer-room-btn {
+  /* Hard-reset all browser UA button styles */
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  box-sizing: border-box;
+  margin: 0;
+
   display: flex;
   align-items: center;
   gap: 5px;
   background: transparent;
   border: none;
-  font-family: var(--font-mono);
+  box-shadow: none;
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
   font-size: 12px;
+  line-height: 1;
   font-weight: 600;
   color: var(--text-primary);
   cursor: pointer;
   outline: none;
-  padding: 3px 6px;
-  border-radius: var(--radius-sm);
-  transition: background 0.15s ease;
+  padding: 3px 5px 3px 2px;
+  border-radius: var(--radius-sm, 4px);
+  transition: background 0.14s ease, color 0.14s ease;
+  white-space: nowrap;
+  user-select: none;
 }
 
 .footer-room-btn:hover {
-  background: rgba(15, 23, 42, 0.06);
+  background: rgba(15, 23, 42, 0.07);
+}
+
+.footer-room-btn:active {
+  background: rgba(15, 23, 42, 0.12);
 }
 
 [data-theme="dark"] .footer-room-btn:hover {
-  background: rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+[data-theme="dark"] .footer-room-btn:active {
+  background: rgba(255, 255, 255, 0.13);
 }
 
 .footer-room-btn svg {
-  opacity: 0.55;
+  opacity: 0.5;
   flex-shrink: 0;
+  margin-top: 1px;
 }
 
 .footer-v-divider {
