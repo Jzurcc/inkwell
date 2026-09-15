@@ -165,9 +165,12 @@ const server = http.createServer((req, res) => {
       '.map': 'application/json'
     };
 
+    const isHashedAsset = rawPath.startsWith('assets/');
     res.writeHead(200, {
       'Content-Type': mimeTypes[ext] || 'application/octet-stream',
-      'Cache-Control': ext === '.html' ? 'no-cache' : 'public, max-age=31536000, immutable'
+      'Cache-Control': isHashedAsset
+        ? 'public, max-age=31536000, immutable'
+        : 'no-cache, must-revalidate'
     });
     fs.createReadStream(filePath).pipe(res);
     return;
