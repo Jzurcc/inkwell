@@ -3564,6 +3564,8 @@ body {
   pointer-events: none;
   transition: opacity 220ms cubic-bezier(0.16, 1, 0.3, 1);
   padding: 20px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .lobby-modal-backdrop.visible {
@@ -3598,6 +3600,7 @@ body {
     0 0 0 1px rgba(0, 0, 0, 0.04);
   transform: scale(0.97) translateY(6px);
   transition: transform 240ms cubic-bezier(0.16, 1, 0.3, 1);
+  margin: auto;
 }
 
 .dark .lobby-landscape-shell {
@@ -4196,25 +4199,208 @@ body {
 }
 
 @media (max-width: 768px) {
-  .lobby-landscape-core {
-    grid-template-columns: 1fr;
-    min-height: auto;
+  /* --- Mobile Lobby / Welcome Page Layout --- */
+  .lobby-modal-backdrop {
+    padding: 16px 12px;
+    align-items: center;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
+
+  .lobby-ambient-glow {
+    display: none;
+  }
+
+  .lobby-landscape-shell {
+    max-width: 440px;
+    width: 100%;
+    padding: 4px;
+    border-radius: 20px;
+    margin: auto 0;
+    max-height: calc(100dvh - 24px);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .lobby-landscape-core {
+    display: flex;
+    flex-direction: column;
+    grid-template-columns: none;
+    min-height: auto;
+    border-radius: 16px;
+    overflow-y: auto;
+    max-height: 100%;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Completely hide decorative desktop showcase on mobile to avoid forced scrolling */
+  .lobby-right-panel {
+    display: none !important;
+  }
+
   .lobby-left-panel {
     border-right: none;
-    border-bottom: 1px solid var(--border-inner);
-    padding: 20px;
+    border-bottom: none;
+    padding: 18px 16px 16px;
+    gap: 12px;
+    width: 100%;
+    box-sizing: border-box;
   }
-  .lobby-landscape-showcase {
-    min-height: 240px;
+
+  .lobby-brand-strip {
+    margin-bottom: -2px;
   }
-  .lobby-right-panel {
-    padding: 10px;
+
+  .lobby-title {
+    font-size: 18px;
+    line-height: 1.25;
   }
-  .lobby-landscape-showcase img {
-    object-fit: cover;
-    transform: scale(1.05);
+
+  .lobby-subtitle {
+    font-size: 12px;
   }
+
+  .lobby-profile-container {
+    gap: 8px;
+  }
+
+  .lobby-profile-card {
+    padding: 9px 12px;
+    border-radius: 12px;
+    gap: 5px;
+  }
+
+  .lobby-box-title {
+    font-size: 12px;
+    margin-bottom: 0;
+  }
+
+  .lobby-text-input {
+    height: 36px;
+    font-size: 13px;
+    padding: 0 10px;
+  }
+
+  .lobby-text-input.with-prefix {
+    padding-left: 24px;
+  }
+
+  .lobby-icon-btn {
+    width: 36px;
+    height: 36px;
+  }
+
+  .lobby-color-swatches {
+    grid-template-columns: repeat(9, 1fr);
+    gap: 6px 4px;
+    padding: 2px 0;
+  }
+
+  .lobby-swatch-btn {
+    width: 23px;
+    height: 23px;
+  }
+
+  .lobby-swatch-check svg {
+    width: 9px;
+    height: 9px;
+  }
+
+  .lobby-big-buttons-grid {
+    gap: 8px;
+  }
+
+  .lobby-big-action-card {
+    padding: 10px 12px;
+    border-radius: 12px;
+    gap: 10px;
+  }
+
+  .action-card-icon-wrap {
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+  }
+
+  .action-card-icon-wrap svg {
+    width: 17px;
+    height: 17px;
+  }
+
+  .action-card-title {
+    font-size: 13.5px;
+  }
+
+  .action-card-desc {
+    font-size: 11px;
+  }
+
+  .action-card-arrow {
+    width: 24px;
+    height: 24px;
+  }
+
+  .action-card-arrow svg {
+    width: 13px;
+    height: 13px;
+  }
+
+  .lobby-view-header {
+    margin-bottom: 2px;
+  }
+
+  .lobby-view-title {
+    font-size: 13.5px;
+  }
+
+  .lobby-launch-cta {
+    height: 40px;
+    font-size: 13.5px;
+    margin-top: 10px;
+    border-radius: 11px;
+  }
+
+  .lobby-quick-pills {
+    gap: 4px;
+    margin-top: 4px;
+  }
+
+  .lobby-quick-pill {
+    font-size: 10.5px;
+    padding: 2.5px 7px;
+  }
+}
+
+@media (max-width: 380px) {
+  .lobby-left-panel {
+    padding: 14px 10px 12px;
+    gap: 10px;
+  }
+
+  .lobby-profile-card {
+    padding: 7px 8px;
+  }
+
+  .lobby-color-swatches {
+    gap: 5px 2px;
+  }
+
+  .lobby-swatch-btn {
+    width: 21px;
+    height: 21px;
+  }
+
+  .lobby-title {
+    font-size: 16px;
+  }
+
+  .lobby-big-action-card {
+    padding: 9px 10px;
+  }
+}
+
+@media (max-width: 768px) {
 
   /* --- Mobile Studio Header --- */
   #studio-header {
