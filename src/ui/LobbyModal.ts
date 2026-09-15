@@ -64,15 +64,13 @@ export class LobbyModal {
     { value: '#8B5CF6', label: 'Purple Velvet' },
     { value: '#06B6D4', label: 'Cyan Tide' },
     { value: '#D946EF', label: 'Fuchsia Bloom' },
-    { value: '#16A34A', label: 'Forest Deep' },
     { value: '#DC2626', label: 'Crimson Bold' },
     { value: '#7C3AED', label: 'Violet Storm' },
     { value: '#DB2777', label: 'Flamingo' },
     { value: '#0891B2', label: 'Teal Drift' },
     { value: '#CA8A04', label: 'Golden Hour' },
     { value: '#64748B', label: 'Slate Cool' },
-    { value: '#15803D', label: 'Jade Peak' },
-    { value: '#C2410C', label: 'Terracotta' },
+    { value: '#16A34A', label: 'Forest Deep' },
     { value: '#1D4ED8', label: 'Cobalt Deep' },
     { value: '#9D174D', label: 'Bordeaux' }
   ];

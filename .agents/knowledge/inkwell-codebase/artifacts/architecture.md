@@ -309,7 +309,7 @@ All messages are `{ action: ProtocolActionType, payload: T, timestamp: number }`
 - Opens automatically on app start (`main.ts` line 131)
 - Also opens from: footer `#footer-btn-room` click, header brand click, hamburger "Active Room" menu item
 - Room name generator: `ROOM_PREFIXES` (40) + `ROOM_SUFFIXES` (40) + 2-digit number → e.g. `neon-cove-42`
-- Avatar palette: 20 colors from `PALETTE` static array
+- Avatar palette: 18 colors from `PALETTE` static array (2 rows of 9)
 
 ---
 

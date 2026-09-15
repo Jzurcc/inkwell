@@ -35,10 +35,10 @@ export class StudioFooter {
         <!-- Left: Room Selector & Element Count -->
         <div class="studio-footer-left">
           <div class="room-selector-dock">
-            <span class="room-hash-icon">#</span>
             <button id="footer-btn-room" class="footer-room-btn" title="Switch or Create Room">
+              <span class="room-hash-icon">#</span>
               <span id="footer-room-label">${this.engine.roomId}</span>
-              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <svg class="footer-room-chevron" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="6 9 12 15 18 9"/>
               </svg>
             </button>
